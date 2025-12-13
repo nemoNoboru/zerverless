@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: zerverless-orchestrator
+    environment:
+      - NODE_ID=node-a
+      - HTTP_PORT=8000
+      - DEBUG=false
+    ports:
+      - "8000:8000"
+    volumes:
+      - orchestrator_data:/data
+
+  volunteer-ui:
+    image: nginx:alpine
+    container_name: zerverless-volunteer-ui
+    ports:
+      - "3000:80"
+    volumes:
+      - ./volunteer:/usr/share/nginx/html:ro
+
+volumes:
+  orchestrator_data:
+

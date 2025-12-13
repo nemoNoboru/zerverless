@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    volumes:
+      - .:/app:cached
+      - go_mod_cache:/go/pkg/mod
+    environment:
+      - NODE_ID=node-dev
+      - HTTP_PORT=8000
+      - DEBUG=true
+      - LOG_LEVEL=debug
+
+volumes:
+  go_mod_cache:
+
