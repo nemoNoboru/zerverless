@@ -18,10 +18,14 @@ build:
 
 # Test
 test:
-	go test ./... -v -race -cover
+	CGO_ENABLED=1 go test ./... -v -race -cover
 
 test-short:
 	go test ./... -short
+
+# Test with Python (requires micropython.wasm in bin/)
+test-python:
+	MICROPYTHON_WASM=./bin/micropython.wasm go test ./internal/worker/... ./internal/wasm/... -v -run Python
 
 # Lint
 lint:
@@ -52,4 +56,8 @@ clean:
 deps:
 	go mod download
 	go mod tidy
+
+# Build example Wasm (requires TinyGo)
+wasm-examples:
+	cd examples/add && tinygo build -o add.wasm -target=wasi main.go
 

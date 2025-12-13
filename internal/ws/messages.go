@@ -55,4 +55,3 @@ type CancelMessage struct {
 	Type  string `json:"type"`
 	JobID string `json:"job_id"`
 }
-

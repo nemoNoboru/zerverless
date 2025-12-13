@@ -82,4 +82,3 @@ func TestManager_GetIdle(t *testing.T) {
 		t.Errorf("expected idle status, got %s", idle.Status)
 	}
 }
-

@@ -75,4 +75,3 @@ func (m *Manager) GetIdle() *Volunteer {
 	}
 	return nil
 }
-

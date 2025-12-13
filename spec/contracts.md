@@ -348,6 +348,7 @@ Sent after connection to indicate volunteer is ready.
     "type": "ready",
     "capabilities": {
         "wasm": true,
+        "python": true,
         "max_memory_mb": 128
     }
 }
@@ -373,15 +374,34 @@ Sent immediately upon WebSocket connection.
 
 Dispatches a job to the volunteer.
 
+**Wasm Job:**
+
 ```json
 {
     "type": "job",
     "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "job_type": "wasm",
     "wasm_cid": "QmXxx...",
     "wasm_url": "http://localhost:8080/ipfs/QmXxx...",
     "input_data": {
         "x": 6,
         "y": 7
+    },
+    "timeout_seconds": 30
+}
+```
+
+**Python Job:**
+
+```json
+{
+    "type": "job",
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "job_type": "python",
+    "code": "result = INPUT['a'] + INPUT['b']\nprint(result)",
+    "input_data": {
+        "a": 6,
+        "b": 7
     },
     "timeout_seconds": 30
 }

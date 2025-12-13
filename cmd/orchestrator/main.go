@@ -19,17 +19,18 @@ import (
 
 func main() {
 	workerURL := flag.String("worker", "", "Run as worker connecting to orchestrator WebSocket URL")
+	micropythonPath := flag.String("micropython", "", "Path to micropython.wasm (default: ./bin/micropython.wasm)")
 	flag.Parse()
 
 	if *workerURL != "" {
-		runWorker(*workerURL)
+		runWorker(*workerURL, *micropythonPath)
 		return
 	}
 
 	runOrchestrator()
 }
 
-func runWorker(url string) {
+func runWorker(url, micropythonPath string) {
 	log.Printf("Starting worker, connecting to: %s", url)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -38,7 +39,12 @@ func runWorker(url string) {
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-	w := worker.New(url)
+	opts := worker.Options{}
+	if micropythonPath != "" {
+		opts.MicropythonPath = micropythonPath
+	}
+
+	w := worker.NewWithOptions(url, opts)
 
 	go func() {
 		if err := w.Run(ctx); err != nil {
@@ -104,7 +110,8 @@ func init() {
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  %s                                    # Run as orchestrator\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s                                            # Run as orchestrator\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s --worker ws://localhost:8000/ws/volunteer  # Run as worker\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --worker ws://host/ws/volunteer --micropython ./micropython.wasm\n", os.Args[0])
 	}
 }

@@ -76,4 +76,3 @@ func TestStats(t *testing.T) {
 		t.Errorf("expected 0 connected, got %v", volunteers["connected"])
 	}
 }
-

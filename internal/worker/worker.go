@@ -5,24 +5,65 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
+
+	"github.com/zerverless/orchestrator/internal/wasm"
 )
 
 type Worker struct {
-	url           string
-	id            string
-	jobsCompleted int
-	jobsFailed    int
+	url            string
+	id             string
+	jobsCompleted  int
+	jobsFailed     int
+	runtime        *wasm.Runtime
+	pythonRuntime  *wasm.PythonRuntime
+	pythonEnabled  bool
+}
+
+type Options struct {
+	MicropythonPath string
 }
 
 func New(url string) *Worker {
-	return &Worker{url: url}
+	return NewWithOptions(url, Options{})
+}
+
+func NewWithOptions(url string, opts Options) *Worker {
+	w := &Worker{
+		url:     url,
+		runtime: wasm.NewRuntime(),
+	}
+
+	// Try to load MicroPython if path provided or default exists
+	micropythonPath := opts.MicropythonPath
+	if micropythonPath == "" {
+		micropythonPath = "./bin/micropython.wasm"
+	}
+
+	if _, err := os.Stat(micropythonPath); err == nil {
+		pythonRT, err := wasm.NewPythonRuntime(micropythonPath)
+		if err != nil {
+			log.Printf("Warning: failed to load MicroPython: %v", err)
+		} else {
+			w.pythonRuntime = pythonRT
+			w.pythonEnabled = true
+			log.Printf("MicroPython runtime enabled")
+		}
+	}
+
+	return w
 }
 
 func (w *Worker) Run(ctx context.Context) error {
+	defer w.runtime.Close(ctx)
+	if w.pythonRuntime != nil {
+		defer w.pythonRuntime.Close(ctx)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -102,21 +143,41 @@ func (w *Worker) messageLoop(ctx context.Context, conn *websocket.Conn) error {
 }
 
 func (w *Worker) executeJob(ctx context.Context, conn *websocket.Conn, job JobMessage) {
-	log.Printf("Executing job: %s", job.JobID[:8])
+	log.Printf("Executing job: %s (type: %s)", job.JobID[:8], job.JobType)
 
-	// TODO: Actual Wasm execution with wazero
-	// For now, simulate execution
-	time.Sleep(time.Duration(500+len(job.JobID)%1000) * time.Millisecond)
-
-	result := map[string]any{
-		"success": true,
-		"output":  42,
+	timeout := time.Duration(job.TimeoutSeconds) * time.Second
+	if timeout == 0 {
+		timeout = 30 * time.Second
 	}
 
+	var result *wasm.ExecutionResult
+	var err error
+
+	switch job.JobType {
+	case "python", "py":
+		result, err = w.executePython(ctx, job, timeout)
+	case "wasm", "":
+		result, err = w.executeWasm(ctx, job, timeout)
+	default:
+		w.sendError(ctx, conn, job.JobID, fmt.Sprintf("unknown job type: %s", job.JobType))
+		return
+	}
+
+	if err != nil {
+		w.sendError(ctx, conn, job.JobID, err.Error())
+		return
+	}
+
+	if result.Error != "" {
+		w.sendError(ctx, conn, job.JobID, result.Error)
+		return
+	}
+
+	// Send result
 	msg := ResultMessage{
 		Type:   "result",
 		JobID:  job.JobID,
-		Result: result,
+		Result: result.Output,
 	}
 
 	if err := wsjson.Write(ctx, conn, msg); err != nil {
@@ -132,11 +193,58 @@ func (w *Worker) executeJob(ctx context.Context, conn *websocket.Conn, job JobMe
 	w.sendReady(ctx, conn)
 }
 
+func (w *Worker) executeWasm(ctx context.Context, job JobMessage, timeout time.Duration) (*wasm.ExecutionResult, error) {
+	// Fetch Wasm module
+	wasmBytes, err := wasm.FetchWasm(ctx, job.WasmURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch wasm: %w", err)
+	}
+
+	log.Printf("Fetched Wasm module: %d bytes", len(wasmBytes))
+
+	return w.runtime.Execute(ctx, wasmBytes, job.InputData, timeout)
+}
+
+func (w *Worker) executePython(ctx context.Context, job JobMessage, timeout time.Duration) (*wasm.ExecutionResult, error) {
+	if !w.pythonEnabled {
+		return nil, fmt.Errorf("python runtime not available")
+	}
+
+	if job.Code == "" {
+		return nil, fmt.Errorf("no python code provided")
+	}
+
+	log.Printf("Executing Python code (%d bytes)", len(job.Code))
+
+	// Convert input to JSON
+	inputJSON := "{}"
+	if job.InputData != nil {
+		b, _ := json.Marshal(job.InputData)
+		inputJSON = string(b)
+	}
+
+	return w.pythonRuntime.ExecuteWithInput(ctx, job.Code, inputJSON, timeout)
+}
+
+func (w *Worker) sendError(ctx context.Context, conn *websocket.Conn, jobID, errMsg string) {
+	log.Printf("Job %s failed: %s", jobID[:8], errMsg)
+
+	msg := ErrorMessage{
+		Type:  "error",
+		JobID: jobID,
+		Error: errMsg,
+	}
+	wsjson.Write(ctx, conn, msg)
+	w.jobsFailed++
+	w.sendReady(ctx, conn)
+}
+
 func (w *Worker) sendReady(ctx context.Context, conn *websocket.Conn) error {
 	msg := ReadyMessage{
 		Type: "ready",
 		Capabilities: &Capabilities{
-			Wasm:        true,
+			Wasm:   true,
+			Python: w.pythonEnabled,
 			MaxMemoryMB: 256,
 		},
 	}
@@ -168,6 +276,7 @@ type BaseMessage struct {
 
 type Capabilities struct {
 	Wasm        bool `json:"wasm"`
+	Python      bool `json:"python"`
 	MaxMemoryMB int  `json:"max_memory_mb"`
 }
 
@@ -185,8 +294,10 @@ type AckMessage struct {
 type JobMessage struct {
 	Type           string         `json:"type"`
 	JobID          string         `json:"job_id"`
-	WasmCID        string         `json:"wasm_cid"`
-	WasmURL        string         `json:"wasm_url"`
+	JobType        string         `json:"job_type"` // "wasm" or "python"
+	WasmCID        string         `json:"wasm_cid,omitempty"`
+	WasmURL        string         `json:"wasm_url,omitempty"`
+	Code           string         `json:"code,omitempty"` // Python code
 	InputData      map[string]any `json:"input_data"`
 	TimeoutSeconds int            `json:"timeout_seconds"`
 }
@@ -206,4 +317,3 @@ type ErrorMessage struct {
 type HeartbeatMessage struct {
 	Type string `json:"type"`
 }
-

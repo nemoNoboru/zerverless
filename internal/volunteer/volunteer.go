@@ -55,4 +55,3 @@ func (v *Volunteer) SetIdle() {
 	v.Status = StatusIdle
 	v.CurrentJobID = ""
 }
-

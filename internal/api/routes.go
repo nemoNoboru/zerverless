@@ -34,4 +34,3 @@ func NewRouter(cfg *config.Config, vm *volunteer.Manager) http.Handler {
 
 	return r
 }
-

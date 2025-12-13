@@ -69,6 +69,23 @@ make docker-up
 make test
 ```
 
+## Code Execution
+
+Workers use [wazero](https://github.com/tetratelabs/wazero) (pure Go, no CGO) to execute:
+
+- **Wasm modules** - Custom compiled WebAssembly
+- **Python scripts** - Via MicroPython WASM runtime
+
+See [examples/](examples/) for samples.
+
+```bash
+# Build Wasm example (requires TinyGo)
+make wasm-examples
+
+# Enable Python support (requires micropython.wasm)
+./bin/zerverless --worker ws://localhost:8000/ws/volunteer --micropython ./bin/micropython.wasm
+```
+
 ## URLs When Running
 
 | Service | URL |
