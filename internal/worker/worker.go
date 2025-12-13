@@ -20,12 +20,13 @@ type Worker struct {
 	jobsCompleted  int
 	jobsFailed     int
 	runtime        *wasm.Runtime
-	pythonRuntime  *wasm.PythonRuntime
+	pythonRuntime  *wasm.WasmtimePythonRuntime
 	pythonEnabled  bool
 }
 
 type Options struct {
-	MicropythonPath string
+	PythonWasmPath string
+	PythonStdlib   string
 }
 
 func New(url string) *Worker {
@@ -38,20 +39,25 @@ func NewWithOptions(url string, opts Options) *Worker {
 		runtime: wasm.NewRuntime(),
 	}
 
-	// Try to load MicroPython if path provided or default exists
-	micropythonPath := opts.MicropythonPath
-	if micropythonPath == "" {
-		micropythonPath = "./bin/micropython.wasm"
+	// Try to load Python runtime if paths provided or defaults exist
+	pythonPath := opts.PythonWasmPath
+	stdlibPath := opts.PythonStdlib
+
+	if pythonPath == "" {
+		pythonPath = "./python.wasm"
+	}
+	if stdlibPath == "" {
+		stdlibPath = "./lib"
 	}
 
-	if _, err := os.Stat(micropythonPath); err == nil {
-		pythonRT, err := wasm.NewPythonRuntime(micropythonPath)
+	if _, err := os.Stat(pythonPath); err == nil {
+		pythonRT, err := wasm.NewWasmtimePythonRuntime(pythonPath, stdlibPath)
 		if err != nil {
-			log.Printf("Warning: failed to load MicroPython: %v", err)
+			log.Printf("Warning: failed to load Python runtime: %v", err)
 		} else {
 			w.pythonRuntime = pythonRT
 			w.pythonEnabled = true
-			log.Printf("MicroPython runtime enabled")
+			log.Printf("CPython WASI runtime enabled")
 		}
 	}
 

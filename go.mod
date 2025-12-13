@@ -8,3 +8,5 @@ require (
 	github.com/tetratelabs/wazero v1.8.2
 	nhooyr.io/websocket v1.8.11
 )
+
+require github.com/bytecodealliance/wasmtime-go/v39 v39.0.1 // indirect

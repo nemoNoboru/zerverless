@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -109,6 +110,36 @@ func (m *mockOrchestrator) close() {
 	m.server.Close()
 }
 
+func getPythonTestPaths() (wasmPath, stdlibPath string, ok bool) {
+	// Try env vars first
+	wasmPath = os.Getenv("MICROPYTHON_WASM")
+	stdlibPath = os.Getenv("PYTHON_STDLIB")
+
+	// Try common locations
+	if wasmPath == "" {
+		paths := []string{"../../python.wasm", "./python.wasm"}
+		for _, p := range paths {
+			if _, err := os.Stat(p); err == nil {
+				wasmPath, _ = filepath.Abs(p)
+				break
+			}
+		}
+	}
+
+	if stdlibPath == "" {
+		paths := []string{"../../lib", "./lib"}
+		for _, p := range paths {
+			if _, err := os.Stat(filepath.Join(p, "encodings")); err == nil {
+				stdlibPath, _ = filepath.Abs(p)
+				break
+			}
+		}
+	}
+
+	ok = wasmPath != "" && stdlibPath != ""
+	return
+}
+
 func TestWorker_ConnectsAndSendsReady(t *testing.T) {
 	mock := newMockOrchestrator(t)
 	defer mock.close()
@@ -133,14 +164,9 @@ func TestWorker_ConnectsAndSendsReady(t *testing.T) {
 }
 
 func TestWorker_ExecutesPythonJob(t *testing.T) {
-	// Check if micropython is available
-	micropythonPath := os.Getenv("MICROPYTHON_WASM")
-	if micropythonPath == "" {
-		micropythonPath = "../../bin/micropython.wasm"
-	}
-
-	if _, err := os.Stat(micropythonPath); os.IsNotExist(err) {
-		t.Skip("micropython.wasm not found, skipping Python integration test")
+	wasmPath, stdlibPath, ok := getPythonTestPaths()
+	if !ok {
+		t.Skip("python.wasm or stdlib not found")
 	}
 
 	mock := newMockOrchestrator(t)
@@ -149,7 +175,10 @@ func TestWorker_ExecutesPythonJob(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	w := NewWithOptions(mock.wsURL(), Options{MicropythonPath: micropythonPath})
+	w := NewWithOptions(mock.wsURL(), Options{
+		PythonWasmPath: wasmPath,
+		PythonStdlib:   stdlibPath,
+	})
 
 	// Run worker in background
 	go w.Run(ctx)
@@ -196,13 +225,9 @@ func TestWorker_ExecutesPythonJob(t *testing.T) {
 }
 
 func TestWorker_PythonWithComplexInput(t *testing.T) {
-	micropythonPath := os.Getenv("MICROPYTHON_WASM")
-	if micropythonPath == "" {
-		micropythonPath = "../../bin/micropython.wasm"
-	}
-
-	if _, err := os.Stat(micropythonPath); os.IsNotExist(err) {
-		t.Skip("micropython.wasm not found")
+	wasmPath, stdlibPath, ok := getPythonTestPaths()
+	if !ok {
+		t.Skip("python.wasm or stdlib not found")
 	}
 
 	mock := newMockOrchestrator(t)
@@ -211,7 +236,10 @@ func TestWorker_PythonWithComplexInput(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	w := NewWithOptions(mock.wsURL(), Options{MicropythonPath: micropythonPath})
+	w := NewWithOptions(mock.wsURL(), Options{
+		PythonWasmPath: wasmPath,
+		PythonStdlib:   stdlibPath,
+	})
 	go w.Run(ctx)
 
 	// Wait for ready
@@ -253,13 +281,9 @@ print(fib(n))
 }
 
 func TestWorker_PythonSyntaxError(t *testing.T) {
-	micropythonPath := os.Getenv("MICROPYTHON_WASM")
-	if micropythonPath == "" {
-		micropythonPath = "../../bin/micropython.wasm"
-	}
-
-	if _, err := os.Stat(micropythonPath); os.IsNotExist(err) {
-		t.Skip("micropython.wasm not found")
+	wasmPath, stdlibPath, ok := getPythonTestPaths()
+	if !ok {
+		t.Skip("python.wasm or stdlib not found")
 	}
 
 	mock := newMockOrchestrator(t)
@@ -268,7 +292,10 @@ func TestWorker_PythonSyntaxError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	w := NewWithOptions(mock.wsURL(), Options{MicropythonPath: micropythonPath})
+	w := NewWithOptions(mock.wsURL(), Options{
+		PythonWasmPath: wasmPath,
+		PythonStdlib:   stdlibPath,
+	})
 	go w.Run(ctx)
 
 	<-mock.readyReceived
@@ -304,15 +331,18 @@ func TestWorker_PythonNotEnabled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Create worker without micropython
-	w := NewWithOptions(mock.wsURL(), Options{MicropythonPath: "/nonexistent/path.wasm"})
+	// Create worker without valid paths
+	w := NewWithOptions(mock.wsURL(), Options{
+		PythonWasmPath: "/nonexistent/path.wasm",
+		PythonStdlib:   "/nonexistent/lib",
+	})
 	go w.Run(ctx)
 
 	// Wait for ready - should not have python capability
 	select {
 	case ready := <-mock.readyReceived:
 		if ready.Capabilities.Python {
-			t.Error("should not have python capability without micropython.wasm")
+			t.Error("should not have python capability without python.wasm")
 		}
 	case <-ctx.Done():
 		t.Fatal("timeout")
@@ -339,4 +369,3 @@ func TestWorker_PythonNotEnabled(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
-

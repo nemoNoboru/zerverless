@@ -19,18 +19,19 @@ import (
 
 func main() {
 	workerURL := flag.String("worker", "", "Run as worker connecting to orchestrator WebSocket URL")
-	micropythonPath := flag.String("micropython", "", "Path to micropython.wasm (default: ./bin/micropython.wasm)")
+	pythonWasm := flag.String("python", "", "Path to python.wasm (default: ./python.wasm)")
+	pythonLib := flag.String("python-lib", "", "Path to Python stdlib (default: ./lib)")
 	flag.Parse()
 
 	if *workerURL != "" {
-		runWorker(*workerURL, *micropythonPath)
+		runWorker(*workerURL, *pythonWasm, *pythonLib)
 		return
 	}
 
 	runOrchestrator()
 }
 
-func runWorker(url, micropythonPath string) {
+func runWorker(url, pythonWasm, pythonLib string) {
 	log.Printf("Starting worker, connecting to: %s", url)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -40,8 +41,11 @@ func runWorker(url, micropythonPath string) {
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	opts := worker.Options{}
-	if micropythonPath != "" {
-		opts.MicropythonPath = micropythonPath
+	if pythonWasm != "" {
+		opts.PythonWasmPath = pythonWasm
+	}
+	if pythonLib != "" {
+		opts.PythonStdlib = pythonLib
 	}
 
 	w := worker.NewWithOptions(url, opts)
@@ -112,6 +116,6 @@ func init() {
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  %s                                            # Run as orchestrator\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s --worker ws://localhost:8000/ws/volunteer  # Run as worker\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s --worker ws://host/ws/volunteer --micropython ./micropython.wasm\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --worker ws://host/ws/volunteer --python ./python.wasm --python-lib ./lib\n", os.Args[0])
 	}
 }

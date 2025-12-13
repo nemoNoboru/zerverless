@@ -23,9 +23,9 @@ test:
 test-short:
 	go test ./... -short
 
-# Test with Python (requires micropython.wasm in bin/)
+# Test with Python (requires python.wasm and lib/ stdlib)
 test-python:
-	MICROPYTHON_WASM=./bin/micropython.wasm go test ./internal/worker/... ./internal/wasm/... -v -run Python
+	MICROPYTHON_WASM=$(PWD)/python.wasm PYTHON_STDLIB=$(PWD)/lib go test ./internal/wasm/... -v -run Wasmtime
 
 # Lint
 lint:
