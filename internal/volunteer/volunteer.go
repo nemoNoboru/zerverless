@@ -16,7 +16,26 @@ const (
 
 type Capabilities struct {
 	Wasm        bool `json:"wasm"`
+	Python      bool `json:"python"`
+	Lua         bool `json:"lua"`
+	JS          bool `json:"js"`
 	MaxMemoryMB int  `json:"max_memory_mb"`
+}
+
+// Supports checks if the volunteer can handle a given job type
+func (c *Capabilities) Supports(jobType string) bool {
+	switch jobType {
+	case "js", "javascript":
+		return c.JS
+	case "lua":
+		return c.Lua
+	case "python", "py":
+		return c.Python
+	case "wasm", "":
+		return c.Wasm
+	default:
+		return false
+	}
 }
 
 type Volunteer struct {

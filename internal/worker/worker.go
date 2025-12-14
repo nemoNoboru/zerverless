@@ -11,6 +11,8 @@ import (
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 
+	jsrt "github.com/zerverless/orchestrator/internal/js"
+	luart "github.com/zerverless/orchestrator/internal/lua"
 	"github.com/zerverless/orchestrator/internal/wasm"
 )
 
@@ -22,6 +24,8 @@ type Worker struct {
 	runtime       *wasm.Runtime
 	pythonRuntime *wasm.WasmtimePythonRuntime
 	pythonEnabled bool
+	luaRuntime    *luart.Runtime
+	jsRuntime     *jsrt.Runtime
 }
 
 type Options struct {
@@ -35,8 +39,10 @@ func New(url string) *Worker {
 
 func NewWithOptions(url string, opts Options) *Worker {
 	w := &Worker{
-		url:     url,
-		runtime: wasm.NewRuntime(),
+		url:        url,
+		runtime:    wasm.NewRuntime(),
+		luaRuntime: luart.NewRuntime(),
+		jsRuntime:  jsrt.NewRuntime(),
 	}
 
 	// Try to load Python runtime if paths provided or defaults exist
@@ -160,6 +166,10 @@ func (w *Worker) executeJob(ctx context.Context, conn *websocket.Conn, job JobMe
 	var err error
 
 	switch job.JobType {
+	case "js", "javascript":
+		result, err = w.executeJS(ctx, job, timeout)
+	case "lua":
+		result, err = w.executeLua(ctx, job, timeout)
 	case "python", "py":
 		result, err = w.executePython(ctx, job, timeout)
 	case "wasm", "":
@@ -232,6 +242,36 @@ func (w *Worker) executePython(ctx context.Context, job JobMessage, timeout time
 	return w.pythonRuntime.ExecuteWithInput(ctx, job.Code, inputJSON, timeout)
 }
 
+func (w *Worker) executeLua(ctx context.Context, job JobMessage, timeout time.Duration) (*wasm.ExecutionResult, error) {
+	if job.Code == "" {
+		return nil, fmt.Errorf("no lua code provided")
+	}
+
+	log.Printf("Executing Lua code (%d bytes)", len(job.Code))
+
+	result, err := w.luaRuntime.Execute(ctx, job.Code, job.InputData, timeout)
+	if err != nil {
+		return &wasm.ExecutionResult{Error: err.Error()}, nil
+	}
+
+	return &wasm.ExecutionResult{Output: result.Output}, nil
+}
+
+func (w *Worker) executeJS(ctx context.Context, job JobMessage, timeout time.Duration) (*wasm.ExecutionResult, error) {
+	if job.Code == "" {
+		return nil, fmt.Errorf("no javascript code provided")
+	}
+
+	log.Printf("Executing JavaScript code (%d bytes)", len(job.Code))
+
+	result, err := w.jsRuntime.Execute(ctx, job.Code, job.InputData, timeout)
+	if err != nil {
+		return &wasm.ExecutionResult{Error: err.Error()}, nil
+	}
+
+	return &wasm.ExecutionResult{Output: result.Output}, nil
+}
+
 func (w *Worker) sendError(ctx context.Context, conn *websocket.Conn, jobID, errMsg string) {
 	log.Printf("Job %s failed: %s", jobID[:8], errMsg)
 
@@ -251,6 +291,8 @@ func (w *Worker) sendReady(ctx context.Context, conn *websocket.Conn) error {
 		Capabilities: &Capabilities{
 			Wasm:        true,
 			Python:      w.pythonEnabled,
+			Lua:         true, // Always available (pure Go)
+			JS:          true, // Always available (pure Go)
 			MaxMemoryMB: 256,
 		},
 	}
@@ -283,6 +325,8 @@ type BaseMessage struct {
 type Capabilities struct {
 	Wasm        bool `json:"wasm"`
 	Python      bool `json:"python"`
+	Lua         bool `json:"lua"`
+	JS          bool `json:"js"`
 	MaxMemoryMB int  `json:"max_memory_mb"`
 }
 

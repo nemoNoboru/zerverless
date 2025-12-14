@@ -82,3 +82,68 @@ func TestManager_GetIdle(t *testing.T) {
 		t.Errorf("expected idle status, got %s", idle.Status)
 	}
 }
+
+func TestCapabilities_Supports(t *testing.T) {
+	tests := []struct {
+		caps    Capabilities
+		jobType string
+		want    bool
+	}{
+		{Capabilities{JS: true}, "js", true},
+		{Capabilities{JS: true}, "javascript", true},
+		{Capabilities{JS: false}, "js", false},
+		{Capabilities{Lua: true}, "lua", true},
+		{Capabilities{Lua: false}, "lua", false},
+		{Capabilities{Python: true}, "python", true},
+		{Capabilities{Python: true}, "py", true},
+		{Capabilities{Wasm: true}, "wasm", true},
+		{Capabilities{Wasm: true}, "", true},
+		{Capabilities{}, "unknown", false},
+	}
+
+	for _, tt := range tests {
+		got := tt.caps.Supports(tt.jobType)
+		if got != tt.want {
+			t.Errorf("Supports(%q) with %+v = %v, want %v", tt.jobType, tt.caps, got, tt.want)
+		}
+	}
+}
+
+func TestManager_GetIdleFor(t *testing.T) {
+	m := NewManager()
+
+	// v1: only supports Lua
+	v1 := New()
+	v1.Capabilities = Capabilities{Lua: true}
+
+	// v2: only supports JS
+	v2 := New()
+	v2.Capabilities = Capabilities{JS: true}
+
+	m.Add(v1)
+	m.Add(v2)
+
+	// Should find v2 for JS job
+	jsVolunteer := m.GetIdleFor("js")
+	if jsVolunteer == nil {
+		t.Fatal("expected to find JS volunteer")
+	}
+	if !jsVolunteer.Capabilities.JS {
+		t.Error("expected JS capability")
+	}
+
+	// Should find v1 for Lua job
+	luaVolunteer := m.GetIdleFor("lua")
+	if luaVolunteer == nil {
+		t.Fatal("expected to find Lua volunteer")
+	}
+	if !luaVolunteer.Capabilities.Lua {
+		t.Error("expected Lua capability")
+	}
+
+	// Should not find anyone for Python job
+	pyVolunteer := m.GetIdleFor("python")
+	if pyVolunteer != nil {
+		t.Error("expected no Python volunteer")
+	}
+}

@@ -369,3 +369,83 @@ func TestWorker_PythonNotEnabled(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
+
+func TestWorker_ExecutesLuaJob(t *testing.T) {
+	mock := newMockOrchestrator(t)
+	defer mock.close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	w := New(mock.wsURL())
+
+	go w.Run(ctx)
+
+	// Wait for ready
+	select {
+	case <-mock.readyReceived:
+		// ready
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for ready")
+	}
+
+	// Send Lua job
+	mock.sendJob(JobMessage{
+		Type:      "job",
+		JobID:     "lua-job-1",
+		JobType:   "lua",
+		Code:      `return INPUT.x * INPUT.y`,
+		InputData: map[string]any{"x": 6.0, "y": 7.0},
+	})
+
+	select {
+	case result := <-mock.jobResults:
+		if result.Result != "42" {
+			t.Errorf("expected 42, got %v", result.Result)
+		}
+	case err := <-mock.jobErrors:
+		t.Fatalf("unexpected error: %s", err.Error)
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for result")
+	}
+}
+
+func TestWorker_ExecutesJSJob(t *testing.T) {
+	mock := newMockOrchestrator(t)
+	defer mock.close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	w := New(mock.wsURL())
+
+	go w.Run(ctx)
+
+	// Wait for ready
+	select {
+	case <-mock.readyReceived:
+		// ready
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for ready")
+	}
+
+	// Send JS job
+	mock.sendJob(JobMessage{
+		Type:      "job",
+		JobID:     "js-job-01",
+		JobType:   "js",
+		Code:      `INPUT.x * INPUT.y`,
+		InputData: map[string]any{"x": 6.0, "y": 7.0},
+	})
+
+	select {
+	case result := <-mock.jobResults:
+		if result.Result != "42" {
+			t.Errorf("expected 42, got %v", result.Result)
+		}
+	case err := <-mock.jobErrors:
+		t.Fatalf("unexpected error: %s", err.Error)
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for result")
+	}
+}

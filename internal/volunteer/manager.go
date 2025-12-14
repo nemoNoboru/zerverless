@@ -75,3 +75,16 @@ func (m *Manager) GetIdle() *Volunteer {
 	}
 	return nil
 }
+
+// GetIdleFor returns an idle volunteer that supports the given job type
+func (m *Manager) GetIdleFor(jobType string) *Volunteer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, v := range m.volunteers {
+		if v.Status == StatusIdle && v.Capabilities.Supports(jobType) {
+			return v
+		}
+	}
+	return nil
+}

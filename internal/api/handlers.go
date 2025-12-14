@@ -2,15 +2,19 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/zerverless/orchestrator/internal/config"
+	"github.com/zerverless/orchestrator/internal/deploy"
 	"github.com/zerverless/orchestrator/internal/job"
 	"github.com/zerverless/orchestrator/internal/volunteer"
+	"github.com/zerverless/orchestrator/internal/ws"
 )
 
 var startTime = time.Now()
@@ -19,10 +23,12 @@ var startTime = time.Now()
 type DispatchFunc func()
 
 type Handlers struct {
-	cfg        *config.Config
-	vm         *volunteer.Manager
-	store      *job.Store
-	onDispatch DispatchFunc
+	cfg         *config.Config
+	vm          *volunteer.Manager
+	store       *job.Store
+	deployStore *deploy.Store
+	wsServer    *ws.Server
+	onDispatch  DispatchFunc
 }
 
 func NewHandlers(cfg *config.Config, vm *volunteer.Manager, store *job.Store) *Handlers {
@@ -128,6 +134,148 @@ func (h *Handlers) ListJobs(w http.ResponseWriter, r *http.Request) {
 		"limit":  limit,
 		"offset": offset,
 	})
+}
+
+type DeployRequest struct {
+	Runtime string `json:"runtime"`
+	Code    string `json:"code"`
+}
+
+func (h *Handlers) Deploy(w http.ResponseWriter, r *http.Request) {
+	user := chi.URLParam(r, "user")
+	path := "/" + strings.TrimPrefix(chi.URLParam(r, "*"), "/")
+
+	var req DeployRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if req.Code == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "code is required"})
+		return
+	}
+
+	if req.Runtime == "" {
+		req.Runtime = "lua" // default
+	}
+
+	d := deploy.New(user, path, req.Runtime, req.Code)
+	h.deployStore.Set(d)
+
+	writeJSON(w, http.StatusCreated, d)
+}
+
+func (h *Handlers) ListDeployments(w http.ResponseWriter, r *http.Request) {
+	deployments := h.deployStore.List()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deployments": deployments,
+		"total":       len(deployments),
+	})
+}
+
+func (h *Handlers) DeleteDeployment(w http.ResponseWriter, r *http.Request) {
+	user := chi.URLParam(r, "user")
+	path := "/" + strings.TrimPrefix(chi.URLParam(r, "*"), "/")
+
+	if !h.deployStore.Delete(user, path) {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) Invoke(w http.ResponseWriter, r *http.Request) {
+	user := chi.URLParam(r, "user")
+	path := "/" + strings.TrimPrefix(chi.URLParam(r, "*"), "/")
+
+	// Find deployment
+	d, ok := h.deployStore.Get(user, path)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Build request input for the handler
+	query := make(map[string]string)
+	for k, v := range r.URL.Query() {
+		if len(v) > 0 {
+			query[k] = v[0]
+		}
+	}
+
+	headers := make(map[string]string)
+	for k, v := range r.Header {
+		if len(v) > 0 {
+			headers[k] = v[0]
+		}
+	}
+
+	body, _ := io.ReadAll(r.Body)
+
+	input := map[string]any{
+		"method":  r.Method,
+		"path":    path,
+		"query":   query,
+		"headers": headers,
+		"body":    string(body),
+	}
+
+	// Wrap code to call handle(INPUT)
+	var wrappedCode string
+	switch d.Runtime {
+	case "lua":
+		wrappedCode = d.Code + "\nreturn handle(INPUT)"
+	case "js", "javascript":
+		wrappedCode = d.Code + "\nhandle(INPUT)"
+	default:
+		wrappedCode = d.Code
+	}
+
+	// Execute synchronously
+	resp, err := h.wsServer.ExecuteSync(r.Context(), d.Runtime, wrappedCode, input, 30*time.Second)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if resp == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no workers available"})
+		return
+	}
+	if resp.Error != "" {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": resp.Error})
+		return
+	}
+
+	// Parse the response from the handler
+	// Expected format: {status: int, headers: map, body: string}
+	if respMap, ok := resp.Result.(map[string]any); ok {
+		status := http.StatusOK
+		if s, ok := respMap["status"].(float64); ok {
+			status = int(s)
+		}
+
+		// Set headers
+		if hdrs, ok := respMap["headers"].(map[string]any); ok {
+			for k, v := range hdrs {
+				if vs, ok := v.(string); ok {
+					w.Header().Set(k, vs)
+				}
+			}
+		}
+
+		w.WriteHeader(status)
+
+		// Write body
+		if bodyStr, ok := respMap["body"].(string); ok {
+			w.Write([]byte(bodyStr))
+		}
+		return
+	}
+
+	// Fallback: return result as-is
+	writeJSON(w, http.StatusOK, resp.Result)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

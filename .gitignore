@@ -6,7 +6,7 @@ tmp/
 *.dll
 *.so
 *.dylib
-
+orchestrator
 # Test binary
 *.test
 

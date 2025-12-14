@@ -15,19 +15,29 @@ import (
 	"github.com/zerverless/orchestrator/internal/volunteer"
 )
 
+// SyncResponse is the result of a synchronous execution
+type SyncResponse struct {
+	Result any
+	Error  string
+}
+
 type Server struct {
 	vm         *volunteer.Manager
 	store      *job.Store
 	dispatcher *job.Dispatcher
 	connsMu    sync.RWMutex
 	conns      map[string]*websocket.Conn
+	// For synchronous request-response
+	pendingMu sync.RWMutex
+	pending   map[string]chan SyncResponse
 }
 
 func NewServer(vm *volunteer.Manager, store *job.Store) *Server {
 	s := &Server{
-		vm:    vm,
-		store: store,
-		conns: make(map[string]*websocket.Conn),
+		vm:      vm,
+		store:   store,
+		conns:   make(map[string]*websocket.Conn),
+		pending: make(map[string]chan SyncResponse),
 	}
 	s.dispatcher = job.NewDispatcher(store, s.sendJobToVolunteer)
 	return s
@@ -41,11 +51,16 @@ func (s *Server) sendJobToVolunteer(j *job.Job, volunteerID string) bool {
 		return false
 	}
 
-	// Mark volunteer as busy before sending
+	// Check volunteer exists and can handle this job type
 	v, ok := s.vm.Get(volunteerID)
 	if !ok {
 		return false
 	}
+	if !v.Capabilities.Supports(j.JobType) {
+		log.Printf("Volunteer %s doesn't support job type %s", volunteerID[:8], j.JobType)
+		return false
+	}
+
 	v.SetBusy(j.ID)
 
 	msg := JobMessage{
@@ -71,11 +86,81 @@ func (s *Server) sendJobToVolunteer(j *job.Job, volunteerID string) bool {
 	return true
 }
 
-// DispatchToIdle dispatches pending jobs to all idle volunteers
+// DispatchToIdle dispatches pending jobs to matching idle volunteers
 func (s *Server) DispatchToIdle() {
-	idle := s.vm.GetIdle()
+	// Get the next pending job to check its type
+	j := s.store.NextPending()
+	if j == nil {
+		return
+	}
+
+	// Find an idle volunteer that can handle this job type
+	idle := s.vm.GetIdleFor(j.JobType)
 	if idle != nil {
 		s.dispatcher.TryDispatch(idle.ID)
+	}
+}
+
+// ExecuteSync sends code to a worker and waits for the response synchronously
+func (s *Server) ExecuteSync(ctx context.Context, runtime, code string, input map[string]any, timeout time.Duration) (*SyncResponse, error) {
+	// Find a capable idle volunteer
+	v := s.vm.GetIdleFor(runtime)
+	if v == nil {
+		return nil, nil // No worker available
+	}
+
+	s.connsMu.RLock()
+	conn, ok := s.conns[v.ID]
+	s.connsMu.RUnlock()
+	if !ok {
+		return nil, nil
+	}
+
+	// Create job ID and response channel
+	jobID := "sync-" + v.ID[:8] + "-" + time.Now().Format("150405.000")
+	respChan := make(chan SyncResponse, 1)
+
+	s.pendingMu.Lock()
+	s.pending[jobID] = respChan
+	s.pendingMu.Unlock()
+
+	defer func() {
+		s.pendingMu.Lock()
+		delete(s.pending, jobID)
+		s.pendingMu.Unlock()
+	}()
+
+	// Mark volunteer as busy
+	v.SetBusy(jobID)
+
+	// Send job
+	msg := JobMessage{
+		Type:           "job",
+		JobID:          jobID,
+		JobType:        runtime,
+		Code:           code,
+		InputData:      input,
+		TimeoutSeconds: int(timeout.Seconds()),
+	}
+
+	sendCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if err := wsjson.Write(sendCtx, conn, msg); err != nil {
+		v.SetIdle()
+		return nil, err
+	}
+
+	// Wait for response
+	select {
+	case resp := <-respChan:
+		return &resp, nil
+	case <-time.After(timeout):
+		v.SetIdle()
+		return &SyncResponse{Error: "timeout"}, nil
+	case <-ctx.Done():
+		v.SetIdle()
+		return &SyncResponse{Error: "cancelled"}, nil
 	}
 }
 
@@ -159,7 +244,18 @@ func (s *Server) handleMessages(ctx context.Context, conn *websocket.Conn, v *vo
 			var result ResultMessage
 			json.Unmarshal(data, &result)
 			log.Printf("Volunteer %s completed job %s", v.ID, result.JobID)
-			s.store.Complete(result.JobID, result.Result)
+
+			// Check if it's a sync request
+			s.pendingMu.RLock()
+			respChan, isSync := s.pending[result.JobID]
+			s.pendingMu.RUnlock()
+
+			if isSync {
+				respChan <- SyncResponse{Result: result.Result}
+			} else {
+				s.store.Complete(result.JobID, result.Result)
+			}
+
 			v.JobsCompleted++
 			v.SetIdle()
 			// Try to dispatch next job
@@ -173,7 +269,18 @@ func (s *Server) handleMessages(ctx context.Context, conn *websocket.Conn, v *vo
 			var errMsg ErrorMessage
 			json.Unmarshal(data, &errMsg)
 			log.Printf("Volunteer %s failed job %s: %s", v.ID, errMsg.JobID, errMsg.Error)
-			s.store.Fail(errMsg.JobID, errMsg.Error)
+
+			// Check if it's a sync request
+			s.pendingMu.RLock()
+			respChan, isSync := s.pending[errMsg.JobID]
+			s.pendingMu.RUnlock()
+
+			if isSync {
+				respChan <- SyncResponse{Error: errMsg.Error}
+			} else {
+				s.store.Fail(errMsg.JobID, errMsg.Error)
+			}
+
 			v.JobsFailed++
 			v.SetIdle()
 			// Try to dispatch next job
