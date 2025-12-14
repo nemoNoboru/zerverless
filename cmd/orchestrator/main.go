@@ -13,6 +13,7 @@ import (
 
 	"github.com/zerverless/orchestrator/internal/api"
 	"github.com/zerverless/orchestrator/internal/config"
+	"github.com/zerverless/orchestrator/internal/job"
 	"github.com/zerverless/orchestrator/internal/volunteer"
 	"github.com/zerverless/orchestrator/internal/worker"
 )
@@ -31,7 +32,7 @@ func main() {
 	runOrchestrator()
 }
 
-func runWorker(url, pythonWasm, pythonLib string) {
+func runWorker(url, pythonWasm string, pythonLib string) {
 	log.Printf("Starting worker, connecting to: %s", url)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -70,7 +71,8 @@ func runOrchestrator() {
 	log.Printf("HTTP port: %d", cfg.HTTPPort)
 
 	vm := volunteer.NewManager()
-	router := api.NewRouter(cfg, vm)
+	store := job.NewStore()
+	router := api.NewRouter(cfg, vm, store)
 
 	server := &http.Server{
 		Addr:         cfg.Addr(),

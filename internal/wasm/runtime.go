@@ -131,3 +131,4 @@ func FetchWasm(ctx context.Context, url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+

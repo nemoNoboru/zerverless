@@ -7,13 +7,15 @@ import (
 	"testing"
 
 	"github.com/zerverless/orchestrator/internal/config"
+	"github.com/zerverless/orchestrator/internal/job"
 	"github.com/zerverless/orchestrator/internal/volunteer"
 )
 
 func TestHealth(t *testing.T) {
 	cfg := &config.Config{NodeID: "test-node"}
 	vm := volunteer.NewManager()
-	router := NewRouter(cfg, vm)
+	store := job.NewStore()
+	router := NewRouter(cfg, vm, store)
 
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
@@ -35,7 +37,8 @@ func TestHealth(t *testing.T) {
 func TestInfo(t *testing.T) {
 	cfg := &config.Config{NodeID: "test-node"}
 	vm := volunteer.NewManager()
-	router := NewRouter(cfg, vm)
+	store := job.NewStore()
+	router := NewRouter(cfg, vm, store)
 
 	req := httptest.NewRequest("GET", "/info", nil)
 	w := httptest.NewRecorder()
@@ -57,7 +60,8 @@ func TestInfo(t *testing.T) {
 func TestStats(t *testing.T) {
 	cfg := &config.Config{NodeID: "test-node"}
 	vm := volunteer.NewManager()
-	router := NewRouter(cfg, vm)
+	store := job.NewStore()
+	router := NewRouter(cfg, vm, store)
 
 	req := httptest.NewRequest("GET", "/stats", nil)
 	w := httptest.NewRecorder()

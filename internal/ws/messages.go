@@ -45,9 +45,11 @@ type AckMessage struct {
 type JobMessage struct {
 	Type           string         `json:"type"`
 	JobID          string         `json:"job_id"`
-	WasmCID        string         `json:"wasm_cid"`
-	WasmURL        string         `json:"wasm_url"`
-	InputData      map[string]any `json:"input_data"`
+	JobType        string         `json:"job_type"`
+	Code           string         `json:"code,omitempty"`
+	WasmCID        string         `json:"wasm_cid,omitempty"`
+	WasmURL        string         `json:"wasm_url,omitempty"`
+	InputData      map[string]any `json:"input_data,omitempty"`
 	TimeoutSeconds int            `json:"timeout_seconds"`
 }
 

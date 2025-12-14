@@ -15,13 +15,13 @@ import (
 )
 
 type Worker struct {
-	url            string
-	id             string
-	jobsCompleted  int
-	jobsFailed     int
-	runtime        *wasm.Runtime
-	pythonRuntime  *wasm.WasmtimePythonRuntime
-	pythonEnabled  bool
+	url           string
+	id            string
+	jobsCompleted int
+	jobsFailed    int
+	runtime       *wasm.Runtime
+	pythonRuntime *wasm.WasmtimePythonRuntime
+	pythonEnabled bool
 }
 
 type Options struct {
@@ -249,8 +249,8 @@ func (w *Worker) sendReady(ctx context.Context, conn *websocket.Conn) error {
 	msg := ReadyMessage{
 		Type: "ready",
 		Capabilities: &Capabilities{
-			Wasm:   true,
-			Python: w.pythonEnabled,
+			Wasm:        true,
+			Python:      w.pythonEnabled,
 			MaxMemoryMB: 256,
 		},
 	}
