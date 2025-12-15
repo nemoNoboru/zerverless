@@ -1,0 +1,641 @@
+{
+	"info": {
+		"_postman_id": "zerverless-api-collection",
+		"name": "Zerverless API",
+		"description": "Complete API collection for Zerverless - volunteer-powered distributed compute platform\n\nSet the `base_url` variable to your orchestrator endpoint (default: http://localhost:8000)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health & Info",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Check if the orchestrator is healthy"
+					},
+					"response": []
+				},
+				{
+					"name": "Node Info",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/info",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"info"
+							]
+						},
+						"description": "Get node information (ID, version, uptime)"
+					},
+					"response": []
+				},
+				{
+					"name": "Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/stats",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"stats"
+							]
+						},
+						"description": "Get statistics about volunteers and jobs"
+					},
+					"response": []
+				}
+			],
+			"description": "Health check and system information endpoints"
+		},
+		{
+			"name": "Jobs",
+			"item": [
+				{
+					"name": "Submit Python Job",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    pm.collectionVariables.set(\"job_id\", response.id);",
+									"    console.log(\"Job ID saved:\", response.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"job_type\": \"python\",\n  \"code\": \"print('Hello from Python!')\\nprint(2 + 2)\",\n  \"timeout_seconds\": 30\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/jobs",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobs"
+							]
+						},
+						"description": "Submit a Python code execution job"
+					},
+					"response": []
+				},
+				{
+					"name": "Submit JavaScript Job",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    pm.collectionVariables.set(\"job_id\", response.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"job_type\": \"js\",\n  \"code\": \"console.log('Hello from JavaScript!'); 42\",\n  \"timeout_seconds\": 30\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/jobs",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobs"
+							]
+						},
+						"description": "Submit a JavaScript code execution job"
+					},
+					"response": []
+				},
+				{
+					"name": "Submit Lua Job with Input",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    pm.collectionVariables.set(\"job_id\", response.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"job_type\": \"lua\",\n  \"code\": \"print('Hello ' .. INPUT.name); return INPUT.x + INPUT.y\",\n  \"input_data\": {\n    \"name\": \"World\",\n    \"x\": 10,\n    \"y\": 32\n  },\n  \"timeout_seconds\": 30\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/jobs",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobs"
+							]
+						},
+						"description": "Submit a Lua job with input data"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Job by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/jobs/{{job_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobs",
+								"{{job_id}}"
+							]
+						},
+						"description": "Get a specific job by ID (uses the job_id variable saved from job submission)"
+					},
+					"response": []
+				},
+				{
+					"name": "List All Jobs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/jobs",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobs"
+							]
+						},
+						"description": "List all jobs (default limit: 20)"
+					},
+					"response": []
+				},
+				{
+					"name": "List Completed Jobs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/jobs?status=completed&limit=10",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobs"
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "completed"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "List only completed jobs"
+					},
+					"response": []
+				},
+				{
+					"name": "List Pending Jobs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/jobs?status=pending",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobs"
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "pending"
+								}
+							]
+						},
+						"description": "List only pending jobs"
+					},
+					"response": []
+				},
+				{
+					"name": "List Running Jobs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/jobs?status=running",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobs"
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "running"
+								}
+							]
+						},
+						"description": "List only running jobs"
+					},
+					"response": []
+				}
+			],
+			"description": "Job submission and management endpoints"
+		},
+		{
+			"name": "Deployments",
+			"item": [
+				{
+					"name": "Deploy Lua Function",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"runtime\": \"lua\",\n  \"code\": \"function handle(req) return {status=200, body='Hello, ' .. (req.query.name or 'World') .. '!'} end\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/deploy/alice/hello",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"deploy",
+								"alice",
+								"hello"
+							]
+						},
+						"description": "Deploy a Lua function at /alice/hello"
+					},
+					"response": []
+				},
+				{
+					"name": "Deploy JavaScript Function",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"runtime\": \"js\",\n  \"code\": \"function handle(req) { return {status: 200, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message: 'Hello ' + (req.query.name || 'World'), method: req.method})} }\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/deploy/bob/api/greet",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"deploy",
+								"bob",
+								"api",
+								"greet"
+							]
+						},
+						"description": "Deploy a JavaScript function at /bob/api/greet"
+					},
+					"response": []
+				},
+				{
+					"name": "Deploy Python Function",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"runtime\": \"python\",\n  \"code\": \"import json\\ndef handle(req):\\n    name = req.get('query', {}).get('name', 'World')\\n    return {'status': 200, 'headers': {'Content-Type': 'text/plain'}, 'body': f'Hello from Python, {name}!'}\\nresult = handle(INPUT)\\nprint(json.dumps(result))\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/deploy/charlie/python-hello",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"deploy",
+								"charlie",
+								"python-hello"
+							]
+						},
+						"description": "Deploy a Python function at /charlie/python-hello"
+					},
+					"response": []
+				},
+				{
+					"name": "Deploy Echo Function (Lua)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"runtime\": \"lua\",\n  \"code\": \"function handle(req) local json = require('json'); return {status=200, headers={['Content-Type']='application/json'}, body=json.encode({method=req.method, path=req.path, body=req.body, query=req.query})} end\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/deploy/test/echo",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"deploy",
+								"test",
+								"echo"
+							]
+						},
+						"description": "Deploy an echo function that returns request details"
+					},
+					"response": []
+				},
+				{
+					"name": "List All Deployments",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/deploy",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"deploy"
+							]
+						},
+						"description": "List all deployed functions"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Deployment",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/deploy/alice/hello",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"deploy",
+								"alice",
+								"hello"
+							]
+						},
+						"description": "Delete a deployed function"
+					},
+					"response": []
+				}
+			],
+			"description": "Serverless function deployment management"
+		},
+		{
+			"name": "Function Invocation",
+			"item": [
+				{
+					"name": "Invoke: alice/hello (GET)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/alice/hello?name=Postman",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"alice",
+								"hello"
+							],
+							"query": [
+								{
+									"key": "name",
+									"value": "Postman"
+								}
+							]
+						},
+						"description": "Invoke the deployed function at /alice/hello with query parameters"
+					},
+					"response": []
+				},
+				{
+					"name": "Invoke: bob/api/greet (GET)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/bob/api/greet?name=Alice",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"bob",
+								"api",
+								"greet"
+							],
+							"query": [
+								{
+									"key": "name",
+									"value": "Alice"
+								}
+							]
+						},
+						"description": "Invoke the JavaScript greeting function"
+					},
+					"response": []
+				},
+				{
+					"name": "Invoke: charlie/python-hello (GET)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/charlie/python-hello?name=Python Dev",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"charlie",
+								"python-hello"
+							],
+							"query": [
+								{
+									"key": "name",
+									"value": "Python Dev"
+								}
+							]
+						},
+						"description": "Invoke the deployed Python function"
+					},
+					"response": []
+				},
+				{
+					"name": "Invoke: test/echo (POST)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Custom-Header",
+								"value": "test-value"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"message\": \"Hello from Postman\",\n  \"timestamp\": \"{{$timestamp}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/test/echo?foo=bar",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"test",
+								"echo"
+							],
+							"query": [
+								{
+									"key": "foo",
+									"value": "bar"
+								}
+							]
+						},
+						"description": "POST to the echo function with body and headers"
+					},
+					"response": []
+				}
+			],
+			"description": "Invoke deployed serverless functions via HTTP"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "job_id",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
+
