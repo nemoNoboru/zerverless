@@ -187,4 +187,3 @@ func TestInvoke_NoWorker(t *testing.T) {
 		t.Errorf("expected 503, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
-

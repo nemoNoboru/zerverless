@@ -84,5 +84,3 @@ func TestRuntime_Execute_Timeout(t *testing.T) {
 	// This is non-deterministic, so we just check it doesn't panic
 	_ = err
 }
-
-

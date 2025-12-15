@@ -141,4 +141,3 @@ func TestRuntime_HandleRequest_NoHandler(t *testing.T) {
 		t.Error("expected error for missing handle function")
 	}
 }
-

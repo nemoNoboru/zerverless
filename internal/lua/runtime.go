@@ -229,4 +229,3 @@ func luaToGo(v lua.LValue) any {
 		return nil
 	}
 }
-

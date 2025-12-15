@@ -56,4 +56,3 @@ func TestStore_Overwrite(t *testing.T) {
 		t.Errorf("expected v2, got %s", got.Code)
 	}
 }
-

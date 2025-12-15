@@ -118,4 +118,3 @@ func TestListJobs(t *testing.T) {
 		t.Errorf("expected 2, got %v", resp["total"])
 	}
 }
-

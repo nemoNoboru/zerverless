@@ -185,4 +185,3 @@ func valueToString(v goja.Value) string {
 		return fmt.Sprintf("%v", val)
 	}
 }
-

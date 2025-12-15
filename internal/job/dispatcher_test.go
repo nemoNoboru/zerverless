@@ -70,4 +70,3 @@ func TestDispatcher_AssignmentFails(t *testing.T) {
 		t.Errorf("expected pending, got %s", got.Status)
 	}
 }
-

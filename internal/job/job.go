@@ -155,4 +155,3 @@ func (s *Store) Stats() (pending, running, completed, failed int) {
 	}
 	return
 }
-

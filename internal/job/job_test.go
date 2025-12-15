@@ -80,4 +80,3 @@ func TestStore_List(t *testing.T) {
 		t.Errorf("expected 2 jobs, got %d", len(jobs))
 	}
 }
-

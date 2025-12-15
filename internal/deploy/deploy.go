@@ -72,4 +72,3 @@ func (s *Store) List() []*Deployment {
 	}
 	return result
 }
-

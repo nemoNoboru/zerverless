@@ -27,4 +27,3 @@ func (d *Dispatcher) TryDispatch(volunteerID string) {
 		d.store.SetStatus(j.ID, StatusPending, "")
 	}
 }
-
