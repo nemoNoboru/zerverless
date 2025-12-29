@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -39,36 +40,40 @@ func NewStore() *Store {
 	}
 }
 
-func (s *Store) Set(d *Deployment) {
+func (s *Store) Set(d *Deployment) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deployments[d.Key()] = d
+	return nil
 }
 
-func (s *Store) Get(user, path string) (*Deployment, bool) {
+func (s *Store) Get(user, path string) (*Deployment, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	d, ok := s.deployments[user+path]
-	return d, ok
+	if !ok {
+		return nil, fmt.Errorf("deployment not found: %s/%s", user, path)
+	}
+	return d, nil
 }
 
-func (s *Store) Delete(user, path string) bool {
+func (s *Store) Delete(user, path string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := user + path
 	if _, ok := s.deployments[key]; !ok {
-		return false
+		return fmt.Errorf("deployment not found: %s/%s", user, path)
 	}
 	delete(s.deployments, key)
-	return true
+	return nil
 }
 
-func (s *Store) List() []*Deployment {
+func (s *Store) List() ([]*Deployment, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*Deployment, 0, len(s.deployments))
 	for _, d := range s.deployments {
 		result = append(result, d)
 	}
-	return result
+	return result, nil
 }

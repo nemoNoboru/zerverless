@@ -40,6 +40,9 @@ go mod tidy
 # Run as orchestrator (default)
 make dev
 
+# Run orchestrator with internal workers
+./bin/zerverless --workers 5
+
 # Or build and run
 make build
 ./bin/zerverless
@@ -52,6 +55,23 @@ Connect to an existing orchestrator as a worker node:
 ```bash
 ./bin/zerverless --worker ws://localhost:8000/ws/volunteer
 ```
+
+## Internal Workers
+
+The orchestrator can spawn multiple internal workers that connect to itself:
+
+```bash
+# Run orchestrator with 5 internal workers
+./bin/zerverless --workers 5
+
+# With Python support
+./bin/zerverless --workers 5 --python ./python.wasm --python-lib ./lib
+```
+
+This is useful for:
+- **Self-contained deployment**: Single process with built-in workers
+- **Testing**: Quick setup without separate worker processes
+- **Development**: Easy local development with multiple workers
 
 ## Docker Development
 
@@ -153,11 +173,12 @@ curl -X POST http://localhost:8000/api/jobs \
 #### Run Lua Code
 
 ```bash
-# Submit Lua job with input data
+# Submit Lua job with input data and namespace
 curl -X POST http://localhost:8000/api/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "job_type": "lua",
+    "namespace": "alice",
     "code": "print(\"Hello \" .. INPUT.name); return INPUT.x + INPUT.y",
     "input_data": {"name": "World", "x": 10, "y": 32},
     "timeout_seconds": 30
@@ -235,6 +256,64 @@ curl http://localhost:8000/api/deploy
 # Delete a deployment
 curl -X DELETE http://localhost:8000/api/deploy/alice/hello
 ```
+
+### Database API
+
+The orchestrator hosts an embedded BadgerDB key-value store with **per-namespace isolation**. Each user namespace has its own separate database instance:
+
+```bash
+# Set a value in alice's namespace
+curl -X PUT http://localhost:8000/api/db/alice/mykey \
+  -H "Content-Type: application/json" \
+  -d '{"value": {"name": "Alice", "count": 42}}'
+
+# Get a value from alice's namespace
+curl http://localhost:8000/api/db/alice/mykey
+# Returns: {"key":"mykey","value":{"name":"Alice","count":42},"exists":true}
+
+# List keys with prefix
+curl "http://localhost:8000/api/db/alice/?prefix=my"
+
+# Delete a key
+curl -X DELETE http://localhost:8000/api/db/alice/mykey
+```
+
+**Features:**
+- **Per-namespace databases**: Each user has a completely isolated database instance
+- **Namespace whitelist**: Workers can specify which namespaces they want to work on
+- **Automatic isolation**: Jobs are only dispatched to workers that support the job's namespace
+
+**Worker Namespace Whitelist:**
+Workers can specify a whitelist of namespaces they want to donate compute to. Jobs are only dispatched to workers whose whitelist includes the job's namespace (or workers with no whitelist, which accept all namespaces).
+
+### Static File Storage API
+
+The orchestrator provides per-namespace file storage for hosting static files:
+
+```bash
+# Upload a file
+curl -X PUT http://localhost:8000/api/storage/alice/index.html \
+  --data-binary @index.html
+
+# Download a file via API
+curl http://localhost:8000/api/storage/alice/index.html
+
+# Serve static files (public HTTP access)
+curl http://localhost:8000/static/alice/index.html
+
+# List files with prefix
+curl "http://localhost:8000/api/storage/alice/?prefix=static/"
+
+# Delete a file
+curl -X DELETE http://localhost:8000/api/storage/alice/index.html
+```
+
+**Features:**
+- **Per-namespace storage**: Each user has isolated file storage at `./storage/{namespace}/`
+- **Path-based access**: Files stored with full path support (e.g., `static/css/style.css`)
+- **Static file serving**: Files accessible via `/static/{namespace}/*` for web access
+- **Content-type detection**: Automatic MIME type detection (HTML, CSS, JS, JSON, etc.)
+- **Security**: Path traversal protection, namespace isolation
 
 ### Function Handler Interface
 
@@ -328,19 +407,25 @@ Future: Multiple orchestrators will mesh via libp2p for decentralized operation.
 3. **Multi-Runtime Support** - WebAssembly, Python, Lua, JavaScript
 4. **Serverless Deployments** - Deploy functions at custom HTTP paths
 5. **Browser Volunteers** - HTML/JS volunteer client included
+6. **Embedded Database** - BadgerDB key-value store accessible to workers
+7. **Static File Storage** - Per-namespace file storage with HTTP serving
 
 ### 🚧 In Progress
 6. **IPFS Storage** - Store Wasm modules and results using Boxo
 7. **P2P Network** - Multiple orchestrators communicate via libp2p
 
 ### 📋 Planned
-8. **Production Hardening** - Auth, rate limiting, monitoring
-9. **DHT-based Discovery** - Decentralized orchestrator discovery
+8. **GitOps Deployments** - Deploy functions and static files from Git repositories - 🚧 In Design
+9. **Production Hardening** - Auth, rate limiting, monitoring
+10. **DHT-based Discovery** - Decentralized orchestrator discovery
 
 ## Documentation
 
 - [spec/v1.md](spec/v1.md) - Full specification
 - [spec/contracts.md](spec/contracts.md) - API contracts (HTTP, WebSocket, P2P)
+- [docs/gitops-design.md](docs/gitops-design.md) - GitOps deployment system design
+- [docs/docker-support.md](docs/docker-support.md) - Docker container support analysis
+- [docs/database-design.md](docs/database-design.md) - Embedded database design
 - [Zerverless.postman_collection.json](Zerverless.postman_collection.json) - Postman API collection
 
 ### Using the Postman Collection

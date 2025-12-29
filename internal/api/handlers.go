@@ -25,13 +25,13 @@ type DispatchFunc func()
 type Handlers struct {
 	cfg         *config.Config
 	vm          *volunteer.Manager
-	store       *job.Store
-	deployStore *deploy.Store
+	store       job.JobStore
+	deployStore deploy.DeployStore
 	wsServer    *ws.Server
 	onDispatch  DispatchFunc
 }
 
-func NewHandlers(cfg *config.Config, vm *volunteer.Manager, store *job.Store) *Handlers {
+func NewHandlers(cfg *config.Config, vm *volunteer.Manager, store job.JobStore) *Handlers {
 	return &Handlers{cfg: cfg, vm: vm, store: store}
 }
 
@@ -76,6 +76,7 @@ func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 
 type JobRequest struct {
 	JobType        string         `json:"job_type"`
+	Namespace      string         `json:"namespace,omitempty"` // User namespace
 	Code           string         `json:"code,omitempty"`
 	WasmCID        string         `json:"wasm_cid,omitempty"`
 	InputData      map[string]any `json:"input_data,omitempty"`
@@ -94,7 +95,7 @@ func (h *Handlers) SubmitJob(w http.ResponseWriter, r *http.Request) {
 		timeout = 30
 	}
 
-	j := job.New(req.JobType, req.Code, req.InputData, timeout)
+	j := job.NewWithNamespace(req.JobType, req.Code, req.InputData, timeout, req.Namespace)
 	if req.WasmCID != "" {
 		j.WasmCID = req.WasmCID
 	}
@@ -110,8 +111,8 @@ func (h *Handlers) SubmitJob(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) GetJob(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	j, ok := h.store.Get(id)
-	if !ok {
+	j, err := h.store.Get(id)
+	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
 		return
 	}
@@ -161,13 +162,20 @@ func (h *Handlers) Deploy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d := deploy.New(user, path, req.Runtime, req.Code)
-	h.deployStore.Set(d)
+	if err := h.deployStore.Set(d); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 
 	writeJSON(w, http.StatusCreated, d)
 }
 
 func (h *Handlers) ListDeployments(w http.ResponseWriter, r *http.Request) {
-	deployments := h.deployStore.List()
+	deployments, err := h.deployStore.List()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"deployments": deployments,
 		"total":       len(deployments),
@@ -178,7 +186,7 @@ func (h *Handlers) DeleteDeployment(w http.ResponseWriter, r *http.Request) {
 	user := chi.URLParam(r, "user")
 	path := "/" + strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 
-	if !h.deployStore.Delete(user, path) {
+	if err := h.deployStore.Delete(user, path); err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -191,8 +199,8 @@ func (h *Handlers) Invoke(w http.ResponseWriter, r *http.Request) {
 	path := "/" + strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 
 	// Find deployment
-	d, ok := h.deployStore.Get(user, path)
-	if !ok {
+	d, err := h.deployStore.Get(user, path)
+	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -229,12 +237,17 @@ func (h *Handlers) Invoke(w http.ResponseWriter, r *http.Request) {
 		wrappedCode = d.Code + "\nreturn handle(INPUT)"
 	case "js", "javascript":
 		wrappedCode = d.Code + "\nhandle(INPUT)"
+	case "docker":
+		// For Docker, Code contains the image tag
+		// Pass input as env vars, use default CMD from image
+		wrappedCode = d.Code // Image tag
 	default:
 		wrappedCode = d.Code
 	}
 
-	// Execute synchronously
-	resp, err := h.wsServer.ExecuteSync(r.Context(), d.Runtime, wrappedCode, input, 30*time.Second)
+	// Execute synchronously with namespace awareness (user = namespace for deployments)
+	// For Docker, ExecuteSyncWithNamespace will use docker runtime and pass input as env
+	resp, err := h.wsServer.ExecuteSyncWithNamespace(r.Context(), d.Runtime, wrappedCode, input, 30*time.Second, user)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

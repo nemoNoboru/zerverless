@@ -25,11 +25,13 @@ func TestStore_SetAndGet(t *testing.T) {
 	store := NewStore()
 	d := New("adamska", "/hello", "lua", "code")
 
-	store.Set(d)
-	got, ok := store.Get("adamska", "/hello")
+	if err := store.Set(d); err != nil {
+		t.Fatalf("set deployment: %v", err)
+	}
+	got, err := store.Get("adamska", "/hello")
 
-	if !ok {
-		t.Fatal("expected deployment to exist")
+	if err != nil {
+		t.Fatalf("expected deployment to exist: %v", err)
 	}
 	if got.Code != "code" {
 		t.Errorf("expected code, got %s", got.Code)
@@ -39,8 +41,8 @@ func TestStore_SetAndGet(t *testing.T) {
 func TestStore_GetNotFound(t *testing.T) {
 	store := NewStore()
 
-	_, ok := store.Get("nobody", "/nothing")
-	if ok {
+	_, err := store.Get("nobody", "/nothing")
+	if err == nil {
 		t.Error("expected deployment not found")
 	}
 }
@@ -48,8 +50,12 @@ func TestStore_GetNotFound(t *testing.T) {
 func TestStore_Overwrite(t *testing.T) {
 	store := NewStore()
 
-	store.Set(New("adamska", "/hello", "lua", "v1"))
-	store.Set(New("adamska", "/hello", "lua", "v2"))
+	if err := store.Set(New("adamska", "/hello", "lua", "v1")); err != nil {
+		t.Fatalf("set deployment: %v", err)
+	}
+	if err := store.Set(New("adamska", "/hello", "lua", "v2")); err != nil {
+		t.Fatalf("set deployment: %v", err)
+	}
 
 	got, _ := store.Get("adamska", "/hello")
 	if got.Code != "v2" {

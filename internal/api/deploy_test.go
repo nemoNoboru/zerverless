@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/zerverless/orchestrator/internal/config"
+	"github.com/zerverless/orchestrator/internal/db"
 	"github.com/zerverless/orchestrator/internal/deploy"
 	"github.com/zerverless/orchestrator/internal/job"
 	"github.com/zerverless/orchestrator/internal/volunteer"
@@ -18,7 +19,8 @@ func TestDeploy(t *testing.T) {
 	vm := volunteer.NewManager()
 	jobStore := job.NewStore()
 	deployStore := deploy.NewStore()
-	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore)
+	dbManager := db.NewManager("")
+	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore, dbManager)
 
 	body := `{"runtime":"lua","code":"function handle(r) return {status=200} end"}`
 	req := httptest.NewRequest("POST", "/api/deploy/adamska/hello", bytes.NewBufferString(body))
@@ -32,9 +34,9 @@ func TestDeploy(t *testing.T) {
 	}
 
 	// Verify deployment was stored
-	d, ok := deployStore.Get("adamska", "/hello")
-	if !ok {
-		t.Fatal("deployment not stored")
+	d, err := deployStore.Get("adamska", "/hello")
+	if err != nil {
+		t.Fatalf("deployment not stored: %v", err)
 	}
 	if d.Runtime != "lua" {
 		t.Errorf("expected lua, got %s", d.Runtime)
@@ -46,7 +48,8 @@ func TestDeploy_InvalidBody(t *testing.T) {
 	vm := volunteer.NewManager()
 	jobStore := job.NewStore()
 	deployStore := deploy.NewStore()
-	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore)
+	dbManager := db.NewManager("")
+	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore, dbManager)
 
 	req := httptest.NewRequest("POST", "/api/deploy/adamska/hello", bytes.NewBufferString("invalid"))
 	rec := httptest.NewRecorder()
@@ -63,7 +66,8 @@ func TestDeploy_MissingCode(t *testing.T) {
 	vm := volunteer.NewManager()
 	jobStore := job.NewStore()
 	deployStore := deploy.NewStore()
-	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore)
+	dbManager := db.NewManager("")
+	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore, dbManager)
 
 	body := `{"runtime":"lua"}`
 	req := httptest.NewRequest("POST", "/api/deploy/adamska/hello", bytes.NewBufferString(body))
@@ -82,7 +86,8 @@ func TestInvoke_NotFound(t *testing.T) {
 	vm := volunteer.NewManager()
 	jobStore := job.NewStore()
 	deployStore := deploy.NewStore()
-	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore)
+	dbManager := db.NewManager("")
+	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore, dbManager)
 
 	req := httptest.NewRequest("GET", "/adamska/hello", nil)
 	rec := httptest.NewRecorder()
@@ -102,8 +107,8 @@ func TestListDeployments(t *testing.T) {
 
 	deployStore.Set(deploy.New("adamska", "/hello", "lua", "code1"))
 	deployStore.Set(deploy.New("adamska", "/world", "js", "code2"))
-
-	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore)
+	dbManager := db.NewManager("")
+	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore, dbManager)
 
 	req := httptest.NewRequest("GET", "/api/deploy", nil)
 	rec := httptest.NewRecorder()
@@ -129,8 +134,8 @@ func TestDeleteDeployment(t *testing.T) {
 	deployStore := deploy.NewStore()
 
 	deployStore.Set(deploy.New("adamska", "/hello", "lua", "code"))
-
-	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore)
+	dbManager := db.NewManager("")
+	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore, dbManager)
 
 	req := httptest.NewRequest("DELETE", "/api/deploy/adamska/hello", nil)
 	rec := httptest.NewRecorder()
@@ -142,8 +147,8 @@ func TestDeleteDeployment(t *testing.T) {
 	}
 
 	// Verify deleted
-	_, ok := deployStore.Get("adamska", "/hello")
-	if ok {
+	_, err := deployStore.Get("adamska", "/hello")
+	if err == nil {
 		t.Error("deployment should be deleted")
 	}
 }
@@ -153,8 +158,8 @@ func TestDeleteDeployment_NotFound(t *testing.T) {
 	vm := volunteer.NewManager()
 	jobStore := job.NewStore()
 	deployStore := deploy.NewStore()
-
-	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore)
+	dbManager := db.NewManager("")
+	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore, dbManager)
 
 	req := httptest.NewRequest("DELETE", "/api/deploy/nobody/nothing", nil)
 	rec := httptest.NewRecorder()
@@ -174,8 +179,8 @@ func TestInvoke_NoWorker(t *testing.T) {
 
 	// Deploy a function
 	deployStore.Set(deploy.New("adamska", "/hello", "lua", `function handle(r) return {status=200, body="hi"} end`))
-
-	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore)
+	dbManager := db.NewManager("")
+	router := NewRouterWithDeploy(cfg, vm, jobStore, deployStore, dbManager)
 
 	req := httptest.NewRequest("GET", "/adamska/hello", nil)
 	rec := httptest.NewRecorder()

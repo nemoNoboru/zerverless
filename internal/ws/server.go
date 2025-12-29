@@ -23,7 +23,7 @@ type SyncResponse struct {
 
 type Server struct {
 	vm         *volunteer.Manager
-	store      *job.Store
+	store      job.JobStore
 	dispatcher *job.Dispatcher
 	connsMu    sync.RWMutex
 	conns      map[string]*websocket.Conn
@@ -32,7 +32,7 @@ type Server struct {
 	pending   map[string]chan SyncResponse
 }
 
-func NewServer(vm *volunteer.Manager, store *job.Store) *Server {
+func NewServer(vm *volunteer.Manager, store job.JobStore) *Server {
 	s := &Server{
 		vm:      vm,
 		store:   store,
@@ -94,8 +94,8 @@ func (s *Server) DispatchToIdle() {
 		return
 	}
 
-	// Find an idle volunteer that can handle this job type
-	idle := s.vm.GetIdleFor(j.JobType)
+	// Find an idle volunteer that can handle this job type and namespace
+	idle := s.vm.GetIdleForNamespace(j.JobType, j.Namespace)
 	if idle != nil {
 		s.dispatcher.TryDispatch(idle.ID)
 	}
@@ -103,8 +103,13 @@ func (s *Server) DispatchToIdle() {
 
 // ExecuteSync sends code to a worker and waits for the response synchronously
 func (s *Server) ExecuteSync(ctx context.Context, runtime, code string, input map[string]any, timeout time.Duration) (*SyncResponse, error) {
-	// Find a capable idle volunteer
-	v := s.vm.GetIdleFor(runtime)
+	return s.ExecuteSyncWithNamespace(ctx, runtime, code, input, timeout, "")
+}
+
+// ExecuteSyncWithNamespace sends code to a worker with namespace awareness
+func (s *Server) ExecuteSyncWithNamespace(ctx context.Context, runtime, code string, input map[string]any, timeout time.Duration, namespace string) (*SyncResponse, error) {
+	// Find a capable idle volunteer that supports the namespace
+	v := s.vm.GetIdleForNamespace(runtime, namespace)
 	if v == nil {
 		return nil, nil // No worker available
 	}
@@ -133,13 +138,30 @@ func (s *Server) ExecuteSync(ctx context.Context, runtime, code string, input ma
 	// Mark volunteer as busy
 	v.SetBusy(jobID)
 
+	// For Docker runtime, prepare input data with command and env
+	inputData := input
+	if runtime == "docker" || runtime == "docker-run" {
+		// Docker needs command and env in input_data
+		command := []string{} // Use default CMD from image
+		env := make(map[string]string)
+		
+		// Add input as JSON env var
+		inputJSON, _ := json.Marshal(input)
+		env["INPUT"] = string(inputJSON)
+		
+		inputData = map[string]any{
+			"command": command,
+			"env":     env,
+		}
+	}
+
 	// Send job
 	msg := JobMessage{
 		Type:           "job",
 		JobID:          jobID,
 		JobType:        runtime,
 		Code:           code,
-		InputData:      input,
+		InputData:      inputData,
 		TimeoutSeconds: int(timeout.Seconds()),
 	}
 
@@ -253,7 +275,12 @@ func (s *Server) handleMessages(ctx context.Context, conn *websocket.Conn, v *vo
 			if isSync {
 				respChan <- SyncResponse{Result: result.Result}
 			} else {
-				s.store.Complete(result.JobID, result.Result)
+				if err := s.store.Complete(result.JobID, result.Result); err != nil {
+					log.Printf("Failed to complete job %s: %v", result.JobID, err)
+				} else {
+					// Handle job dependencies (e.g., docker-build -> docker-deploy)
+					s.handleJobDependencies(result.JobID, result.Result)
+				}
 			}
 
 			v.JobsCompleted++
@@ -278,7 +305,9 @@ func (s *Server) handleMessages(ctx context.Context, conn *websocket.Conn, v *vo
 			if isSync {
 				respChan <- SyncResponse{Error: errMsg.Error}
 			} else {
-				s.store.Fail(errMsg.JobID, errMsg.Error)
+				if err := s.store.Fail(errMsg.JobID, errMsg.Error); err != nil {
+					log.Printf("Failed to fail job %s: %v", errMsg.JobID, err)
+				}
 			}
 
 			v.JobsFailed++
@@ -290,4 +319,97 @@ func (s *Server) handleMessages(ctx context.Context, conn *websocket.Conn, v *vo
 			log.Printf("Unknown message type: %s", msg.Type)
 		}
 	}
+}
+
+// handleJobDependencies processes job completion and updates dependent jobs
+func (s *Server) handleJobDependencies(jobID string, result any) {
+	completedJob, err := s.store.Get(jobID)
+	if err != nil {
+		return
+	}
+
+	// Handle docker-build completion: update dependent docker-deploy jobs
+	if completedJob.JobType == "docker-build" {
+		s.handleDockerBuildCompletion(jobID, result)
+	}
+
+	// Handle docker-deploy completion: create deployment
+	if completedJob.JobType == "docker-deploy" {
+		s.handleDockerDeployCompletion(jobID, result)
+	}
+}
+
+func (s *Server) handleDockerBuildCompletion(jobID string, result any) {
+
+	// Extract image tag from build result
+	var imageTag string
+	if resultMap, ok := result.(map[string]any); ok {
+		if tag, ok := resultMap["image_tag"].(string); ok {
+			imageTag = tag
+		}
+	} else if resultStr, ok := result.(string); ok {
+		// Try to parse JSON string
+		var buildResult map[string]any
+		if err := json.Unmarshal([]byte(resultStr), &buildResult); err == nil {
+			if tag, ok := buildResult["image_tag"].(string); ok {
+				imageTag = tag
+			}
+		}
+	}
+
+	if imageTag == "" {
+		log.Printf("Could not extract image tag from build job %s result", jobID)
+		return
+	}
+
+	// Find pending docker-deploy jobs that depend on this build job
+	// We need to search all pending jobs
+	pending, err := s.store.ListPending()
+	if err != nil {
+		return
+	}
+
+	for _, job := range pending {
+		if job.JobType == "docker-deploy" {
+			if buildJobID, ok := job.InputData["build_job_id"].(string); ok && buildJobID == jobID {
+				// Update the deploy job with the image tag
+				job.Code = imageTag // Store image tag in Code field for docker-deploy
+				if err := s.store.Update(job); err != nil {
+					log.Printf("Failed to update deploy job %s: %v", job.ID, err)
+				} else {
+					log.Printf("Updated deploy job %s with image tag %s", job.ID, imageTag)
+					// Try to dispatch the updated job
+					s.dispatcher.TryDispatch("")
+				}
+			}
+		}
+	}
+}
+
+func (s *Server) handleDockerDeployCompletion(jobID string, result any) {
+	// Extract deployment info from result
+	var imageTag, user, path string
+	if resultMap, ok := result.(map[string]any); ok {
+		imageTag, _ = resultMap["image_tag"].(string)
+		user, _ = resultMap["user"].(string)
+		path, _ = resultMap["path"].(string)
+	} else if resultStr, ok := result.(string); ok {
+		// Try to parse JSON string
+		var deployResult map[string]any
+		if err := json.Unmarshal([]byte(resultStr), &deployResult); err == nil {
+			imageTag, _ = deployResult["image_tag"].(string)
+			user, _ = deployResult["user"].(string)
+			path, _ = deployResult["path"].(string)
+		}
+	}
+
+	if imageTag == "" || user == "" || path == "" {
+		log.Printf("Could not extract deployment info from deploy job %s result", jobID)
+		return
+	}
+
+	// Create deployment (we need access to deployStore)
+	// For now, log it - in full implementation, we'd need to pass deployStore to Server
+	log.Printf("Deployment ready: %s/%s -> %s", user, path, imageTag)
+	// TODO: Create deployment in deployStore
 }

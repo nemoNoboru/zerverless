@@ -60,7 +60,9 @@ func TestGetJob(t *testing.T) {
 	vm := volunteer.NewManager()
 	store := job.NewStore()
 	j := job.New("python", "print(1)", nil, 30)
-	store.Add(j)
+	if err := store.Add(j); err != nil {
+		t.Fatalf("add job: %v", err)
+	}
 	router := NewRouter(cfg, vm, store)
 
 	req := httptest.NewRequest("GET", "/api/jobs/"+j.ID, nil)
@@ -99,8 +101,12 @@ func TestListJobs(t *testing.T) {
 	cfg := &config.Config{NodeID: "test"}
 	vm := volunteer.NewManager()
 	store := job.NewStore()
-	store.Add(job.New("python", "1", nil, 30))
-	store.Add(job.New("python", "2", nil, 30))
+	if err := store.Add(job.New("python", "1", nil, 30)); err != nil {
+		t.Fatalf("add job: %v", err)
+	}
+	if err := store.Add(job.New("python", "2", nil, 30)); err != nil {
+		t.Fatalf("add job: %v", err)
+	}
 	router := NewRouter(cfg, vm, store)
 
 	req := httptest.NewRequest("GET", "/api/jobs", nil)
