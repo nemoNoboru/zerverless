@@ -11,6 +11,7 @@ type Deployment struct {
 	Path      string    `json:"path"`
 	Runtime   string    `json:"runtime"`
 	Code      string    `json:"code"`
+	Port      int       `json:"port,omitempty"` // Container port for Docker deployments
 	CreatedAt time.Time `json:"created_at"`
 }
 

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/zerverless/orchestrator/internal/config"
 	"github.com/zerverless/orchestrator/internal/deploy"
+	"github.com/zerverless/orchestrator/internal/docker"
 	"github.com/zerverless/orchestrator/internal/job"
 	"github.com/zerverless/orchestrator/internal/volunteer"
 	"github.com/zerverless/orchestrator/internal/ws"
@@ -23,12 +25,14 @@ var startTime = time.Now()
 type DispatchFunc func()
 
 type Handlers struct {
-	cfg         *config.Config
-	vm          *volunteer.Manager
-	store       job.JobStore
-	deployStore deploy.DeployStore
-	wsServer    *ws.Server
-	onDispatch  DispatchFunc
+	cfg             *config.Config
+	vm              *volunteer.Manager
+	store           job.JobStore
+	deployStore     deploy.DeployStore
+	wsServer        *ws.Server
+	onDispatch      DispatchFunc
+	containerMgr    *docker.ContainerManager
+	dockerRuntime    *docker.Runtime
 }
 
 func NewHandlers(cfg *config.Config, vm *volunteer.Manager, store job.JobStore) *Handlers {
@@ -140,6 +144,7 @@ func (h *Handlers) ListJobs(w http.ResponseWriter, r *http.Request) {
 type DeployRequest struct {
 	Runtime string `json:"runtime"`
 	Code    string `json:"code"`
+	Port    int    `json:"port,omitempty"` // Container port for Docker deployments (default: 80)
 }
 
 func (h *Handlers) Deploy(w http.ResponseWriter, r *http.Request) {
@@ -162,9 +167,29 @@ func (h *Handlers) Deploy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d := deploy.New(user, path, req.Runtime, req.Code)
+	if req.Port > 0 {
+		d.Port = req.Port
+	}
 	if err := h.deployStore.Set(d); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+
+	// For Docker deployments, start container
+	if req.Runtime == "docker" && h.containerMgr != nil {
+		deploymentKey := d.Key()
+		// Use specified port or default to 80
+		containerPort := d.Port
+		if containerPort == 0 {
+			containerPort = 80 // Default to 80 for web servers
+		}
+		_, err := h.containerMgr.StartContainerForDeployment(r.Context(), deploymentKey, req.Code, containerPort)
+		if err != nil {
+			log.Printf("Failed to start container for deployment %s: %v", deploymentKey, err)
+			// Don't fail deployment, container might start later
+		} else {
+			log.Printf("Started container for deployment %s on port %d", deploymentKey, containerPort)
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, d)
@@ -186,6 +211,21 @@ func (h *Handlers) DeleteDeployment(w http.ResponseWriter, r *http.Request) {
 	user := chi.URLParam(r, "user")
 	path := "/" + strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 
+	d, err := h.deployStore.Get(user, path)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// For Docker deployments, stop container
+	if d.Runtime == "docker" && h.containerMgr != nil {
+		deploymentKey := d.Key()
+		if err := h.containerMgr.StopContainerForDeployment(r.Context(), deploymentKey); err != nil {
+			log.Printf("Failed to stop container for deployment %s: %v", deploymentKey, err)
+			// Continue with deletion anyway
+		}
+	}
+
 	if err := h.deployStore.Delete(user, path); err != nil {
 		http.NotFound(w, r)
 		return
@@ -205,6 +245,55 @@ func (h *Handlers) Invoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// For Docker deployments, proxy directly to container
+	if d.Runtime == "docker" {
+		if h.containerMgr == nil {
+			log.Printf("Container manager not available for Docker deployment %s", d.Key())
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Docker container manager not available. Please restart orchestrator."})
+			return
+		}
+
+		deploymentKey := d.Key()
+		containerInfo, ok := h.containerMgr.GetContainerInfo(deploymentKey)
+		if !ok {
+			log.Printf("Container not running for %s, starting it...", deploymentKey)
+			// Container not running, try to start it
+			// Use specified port or default to 80
+			containerPort := d.Port
+			if containerPort == 0 {
+				containerPort = 80 // Default to 80 for web servers
+			}
+			info, err := h.containerMgr.StartContainerForDeployment(r.Context(), deploymentKey, d.Code, containerPort)
+			if err != nil {
+				log.Printf("Failed to start container for deployment %s: %v", deploymentKey, err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to start container: " + err.Error()})
+				return
+			}
+			containerInfo = info
+			log.Printf("Container started for %s on host port %d (container port %d)", deploymentKey, containerInfo.HostPort, containerPort)
+		}
+
+		// Proxy request to container
+		// Strip the deployment path from the request path
+		// Request path is like "/test/html-server", deployment path is "test/html-server"
+		deploymentPath := "/" + user + path
+		log.Printf("Proxying request to container %s on port %d (request path: %s, deployment path: %s)", containerInfo.ContainerID[:12], containerInfo.HostPort, r.URL.Path, deploymentPath)
+		proxyResp, err := docker.ProxyRequest(r, containerInfo.HostPort, deploymentPath)
+		if err != nil {
+			log.Printf("Failed to proxy request to container: %v", err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to proxy request: " + err.Error()})
+			return
+		}
+		defer proxyResp.Body.Close()
+
+		// Write proxied response
+		if err := docker.ProxyResponse(w, proxyResp); err != nil {
+			log.Printf("Failed to write proxied response: %v", err)
+		}
+		return
+	}
+
+	// For other runtimes, use existing execution path
 	// Build request input for the handler
 	query := make(map[string]string)
 	for k, v := range r.URL.Query() {
@@ -237,16 +326,11 @@ func (h *Handlers) Invoke(w http.ResponseWriter, r *http.Request) {
 		wrappedCode = d.Code + "\nreturn handle(INPUT)"
 	case "js", "javascript":
 		wrappedCode = d.Code + "\nhandle(INPUT)"
-	case "docker":
-		// For Docker, Code contains the image tag
-		// Pass input as env vars, use default CMD from image
-		wrappedCode = d.Code // Image tag
 	default:
 		wrappedCode = d.Code
 	}
 
 	// Execute synchronously with namespace awareness (user = namespace for deployments)
-	// For Docker, ExecuteSyncWithNamespace will use docker runtime and pass input as env
 	resp, err := h.wsServer.ExecuteSyncWithNamespace(r.Context(), d.Runtime, wrappedCode, input, 30*time.Second, user)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

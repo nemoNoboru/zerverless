@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -9,6 +10,7 @@ import (
 	"github.com/zerverless/orchestrator/internal/config"
 	"github.com/zerverless/orchestrator/internal/db"
 	"github.com/zerverless/orchestrator/internal/deploy"
+	"github.com/zerverless/orchestrator/internal/docker"
 	"github.com/zerverless/orchestrator/internal/job"
 	"github.com/zerverless/orchestrator/internal/storage"
 	"github.com/zerverless/orchestrator/internal/volunteer"
@@ -40,6 +42,16 @@ func NewRouterWithGitOps(cfg *config.Config, vm *volunteer.Manager, jobStore job
 	h.deployStore = deployStore
 	h.wsServer = wsServer
 	h.SetDispatchFunc(wsServer.DispatchToIdle)
+
+	// Initialize Docker runtime and container manager if available
+	dockerRuntime, err := docker.NewRuntime()
+	if err == nil {
+		h.dockerRuntime = dockerRuntime
+		h.containerMgr = docker.NewContainerManager(dockerRuntime)
+		log.Printf("Docker container manager initialized successfully")
+	} else {
+		log.Printf("Docker not available (containers will not be managed): %v", err)
+	}
 
 	// Health & Info
 	r.Get("/health", h.Health)

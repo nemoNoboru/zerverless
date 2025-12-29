@@ -11,13 +11,44 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/archive"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type Runtime struct {
 	client *client.Client
 }
+
+// ContainerCreate implements DockerClient interface
+func (r *Runtime) ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform interface{}, containerName string) (container.CreateResponse, error) {
+	var platformPtr *ocispec.Platform
+	if platform != nil {
+		if p, ok := platform.(*ocispec.Platform); ok {
+			platformPtr = p
+		}
+	}
+	return r.client.ContainerCreate(ctx, config, hostConfig, networkingConfig, platformPtr, containerName)
+}
+
+// ContainerStart implements DockerClient interface
+func (r *Runtime) ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error {
+	return r.client.ContainerStart(ctx, containerID, options)
+}
+
+// ContainerStop implements DockerClient interface
+func (r *Runtime) ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error {
+	return r.client.ContainerStop(ctx, containerID, options)
+}
+
+// ContainerRemove implements DockerClient interface
+func (r *Runtime) ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error {
+	return r.client.ContainerRemove(ctx, containerID, options)
+}
+
+// Ensure Runtime implements DockerClient interface
+var _ DockerClient = (*Runtime)(nil)
 
 func (r *Runtime) Close() error {
 	return r.client.Close()
@@ -225,5 +256,15 @@ func (r *Runtime) RunContainer(ctx context.Context, imageTag string, command []s
 		Output:   output,
 		ExitCode: exitCode,
 	}, nil
+}
+
+// ContainerInspect implements DockerClient interface
+func (r *Runtime) ContainerInspect(ctx context.Context, containerID string) (types.ContainerJSON, error) {
+	return r.client.ContainerInspect(ctx, containerID)
+}
+
+// ContainerList implements DockerClient interface
+func (r *Runtime) ContainerList(ctx context.Context, options container.ListOptions) ([]types.Container, error) {
+	return r.client.ContainerList(ctx, options)
 }
 
