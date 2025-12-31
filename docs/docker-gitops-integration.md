@@ -561,3 +561,4 @@ Docker-in-Docker integration with GitOps enables:
 The orchestrator builds images when GitOps detects changes, stores image tags in the deployment store, and workers execute containers on demand.
 
 
+

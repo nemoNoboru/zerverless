@@ -77,3 +77,4 @@ curl -s "$ORCHESTRATOR_URL/api/jobs/$JOB_ID2" | jq '.'
 echo ""
 
 
+
