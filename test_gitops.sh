@@ -3,7 +3,7 @@
 set -e
 
 ORCHESTRATOR_URL="http://localhost:8000"
-REPO_URL="https://github.com/nemoNoboru/zerverless"
+REPO_URL="https://github.com/nemoNoboru/small-zerverless-test-flask-docker"
 NAMESPACE="example"
 APP_NAME="flask-example"
 FUNCTION_PATH="/flask-example"  # Matches the path in zerverless.yaml manifest

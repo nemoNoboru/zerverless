@@ -245,10 +245,30 @@ func (h *Handlers) DeleteDeployment(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) Invoke(w http.ResponseWriter, r *http.Request) {
 	user := chi.URLParam(r, "user")
-	path := "/" + strings.TrimPrefix(chi.URLParam(r, "*"), "/")
+	fullPath := "/" + strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 
-	// Find deployment
-	d, err := h.deployStore.Get(user, path)
+	// Find deployment - try exact match first, then try matching by prefix
+	// The deployment path might be "/flask-example" but request path is "/flask-example/hello"
+	var d *deploy.Deployment
+	var err error
+	
+	// Try exact match first
+	d, err = h.deployStore.Get(user, fullPath)
+	if err != nil {
+		// Try to find deployment by matching the longest prefix
+		// Split path and try progressively shorter paths
+		pathParts := strings.Split(strings.TrimPrefix(fullPath, "/"), "/")
+		for i := len(pathParts); i > 0; i-- {
+			tryPath := "/" + strings.Join(pathParts[:i], "/")
+			d, err = h.deployStore.Get(user, tryPath)
+			if err == nil {
+				// Found a matching deployment, update fullPath to the matched path
+				fullPath = tryPath
+				break
+			}
+		}
+	}
+	
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -280,14 +300,33 @@ func (h *Handlers) Invoke(w http.ResponseWriter, r *http.Request) {
 			}
 			containerInfo = info
 			log.Printf("Container started for %s on host port %d (container port %d)", deploymentKey, containerInfo.HostPort, containerPort)
+		} else {
+			// Verify container is actually running
+			if !h.containerMgr.IsContainerRunning(containerInfo.ContainerID) {
+				log.Printf("Container %s for deployment %s is not running, starting new one...", containerInfo.ContainerID[:12], deploymentKey)
+				// Remove stale info and start new container
+				h.containerMgr.RemoveContainerInfo(deploymentKey)
+				containerPort := d.Port
+				if containerPort == 0 {
+					containerPort = 80
+				}
+				info, err := h.containerMgr.StartContainerForDeployment(r.Context(), deploymentKey, d.Code, containerPort)
+				if err != nil {
+					log.Printf("Failed to start container for deployment %s: %v", deploymentKey, err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to start container: " + err.Error()})
+					return
+				}
+				containerInfo = info
+				log.Printf("Container restarted for %s on host port %d", deploymentKey, containerInfo.HostPort)
+			}
 		}
 
 		// Proxy request to container
-		// Strip the deployment path from the request path
-		// Request path is like "/test/html-server", deployment path is "test/html-server"
-		deploymentPath := "/" + user + path
-		log.Printf("Proxying request to container %s on port %d (request path: %s, deployment path: %s)", containerInfo.ContainerID[:12], containerInfo.HostPort, r.URL.Path, deploymentPath)
-		proxyResp, err := docker.ProxyRequest(r, containerInfo.HostPort, deploymentPath)
+		// Strip the user/namespace part from the request path, keep the function path + endpoint
+		// Request path is like "/example/flask-example/hello", we strip "/example" and keep "/flask-example/hello"
+		userPath := "/" + user
+		log.Printf("Proxying request to container %s on port %d (request path: %s, user path: %s, deployment path: %s)", containerInfo.ContainerID[:12], containerInfo.HostPort, r.URL.Path, userPath, fullPath)
+		proxyResp, err := docker.ProxyRequest(r, containerInfo.HostPort, userPath)
 		if err != nil {
 			log.Printf("Failed to proxy request to container: %v", err)
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to proxy request: " + err.Error()})
@@ -320,9 +359,20 @@ func (h *Handlers) Invoke(w http.ResponseWriter, r *http.Request) {
 
 	body, _ := io.ReadAll(r.Body)
 
+	// For the handler input, use the endpoint path (the part after the deployment path)
+	// If fullPath is "/flask-example/hello" and deployment path is "/flask-example",
+	// the endpoint path should be "/hello"
+	endpointPath := fullPath
+	if strings.HasPrefix(fullPath, d.Path) {
+		endpointPath = fullPath[len(d.Path):]
+		if endpointPath == "" {
+			endpointPath = "/"
+		}
+	}
+
 	input := map[string]any{
 		"method":  r.Method,
-		"path":    path,
+		"path":    endpointPath,
 		"query":   query,
 		"headers": headers,
 		"body":    string(body),

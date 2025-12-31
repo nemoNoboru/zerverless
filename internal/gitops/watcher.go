@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -41,10 +42,19 @@ func (w *Watcher) repoPath(repoURL string) string {
 }
 
 func (w *Watcher) Clone(repoURL, branch string, auth *Auth) (string, error) {
+	return w.CloneWithSubdir(repoURL, branch, "", auth)
+}
+
+// CloneWithSubdir clones a repository and optionally configures sparse checkout for a subdirectory
+func (w *Watcher) CloneWithSubdir(repoURL, branch, subdir string, auth *Auth) (string, error) {
 	repoPath := w.repoPath(repoURL)
 	
 	// If already exists, return existing path
 	if _, err := os.Stat(repoPath); err == nil {
+		// If subdir is specified, return path to subdirectory
+		if subdir != "" {
+			return filepath.Join(repoPath, subdir), nil
+		}
 		return repoPath, nil
 	}
 	
@@ -53,6 +63,7 @@ func (w *Watcher) Clone(repoURL, branch string, auth *Auth) (string, error) {
 		ReferenceName: plumbing.NewBranchReferenceName(branch),
 		SingleBranch:  true,
 		Progress:      os.Stdout,
+		Depth:         1, // Shallow clone for faster performance
 	}
 	
 	// Set up authentication
@@ -65,7 +76,92 @@ func (w *Watcher) Clone(repoURL, branch string, auth *Auth) (string, error) {
 		return "", fmt.Errorf("clone: %w", err)
 	}
 	
+	// Configure sparse checkout if subdir is specified
+	if subdir != "" {
+		if err := w.configureSparseCheckout(repoPath, subdir); err != nil {
+			// If sparse checkout fails, clean up and return error
+			os.RemoveAll(repoPath)
+			return "", fmt.Errorf("configure sparse checkout: %w", err)
+		}
+		return filepath.Join(repoPath, subdir), nil
+	}
+	
 	return repoPath, nil
+}
+
+// configureSparseCheckout sets up sparse checkout for a specific subdirectory
+func (w *Watcher) configureSparseCheckout(repoPath, subdir string) error {
+	// Get worktree
+	repo, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return fmt.Errorf("open repo: %w", err)
+	}
+	
+	worktree, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("get worktree: %w", err)
+	}
+	
+	// Enable sparse checkout by creating .git/info/sparse-checkout file
+	sparseCheckoutPath := filepath.Join(repoPath, ".git", "info", "sparse-checkout")
+	sparseCheckoutDir := filepath.Dir(sparseCheckoutPath)
+	
+	// Ensure directory exists
+	if err := os.MkdirAll(sparseCheckoutDir, 0755); err != nil {
+		return fmt.Errorf("create sparse-checkout dir: %w", err)
+	}
+	
+	// Write sparse-checkout file with the subdirectory pattern
+	// Normalize subdir: remove leading/trailing slashes and ensure it starts with /
+	normalizedSubdir := subdir
+	if normalizedSubdir != "" {
+		normalizedSubdir = filepath.Clean(normalizedSubdir)
+		if !filepath.IsAbs(normalizedSubdir) {
+			normalizedSubdir = "/" + normalizedSubdir
+		}
+		// Ensure it ends with /* to include all files in the directory
+		if !strings.HasSuffix(normalizedSubdir, "/*") {
+			normalizedSubdir = normalizedSubdir + "/*"
+		}
+	}
+	
+	content := normalizedSubdir + "\n"
+	if err := os.WriteFile(sparseCheckoutPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("write sparse-checkout file: %w", err)
+	}
+	
+	// Enable sparse checkout by setting git config (using git command or config file)
+	configPath := filepath.Join(repoPath, ".git", "config")
+	configContent, err := os.ReadFile(configPath)
+	if err == nil {
+		// Check if sparse checkout is already enabled
+		if !strings.Contains(string(configContent), "sparseCheckout = true") {
+			// Append sparse checkout config
+			configContent = append(configContent, []byte("\n[core]\n\tsparseCheckout = true\n")...)
+			if err := os.WriteFile(configPath, configContent, 0644); err != nil {
+				return fmt.Errorf("write git config: %w", err)
+			}
+		}
+	}
+	
+	// Apply sparse checkout by checking out again
+	checkoutOpts := &git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("main"), // Will be updated by caller if needed
+		Force:  true,
+	}
+	
+	// Try to get current branch
+	head, err := repo.Head()
+	if err == nil {
+		checkoutOpts.Branch = head.Name()
+	}
+	
+	err = worktree.Checkout(checkoutOpts)
+	if err != nil {
+		return fmt.Errorf("checkout with sparse: %w", err)
+	}
+	
+	return nil
 }
 
 func (w *Watcher) Pull(repoPath, branch string, auth *Auth) error {
@@ -180,15 +276,27 @@ func (w *Watcher) HasChanges(repoPath, branch string, auth *Auth) (bool, error) 
 
 // Sync ensures the repository is cloned and up to date with the specified branch
 func (w *Watcher) Sync(repoURL, branch string, auth *Auth) (string, error) {
+	return w.SyncWithSubdir(repoURL, branch, "", auth)
+}
+
+// SyncWithSubdir ensures the repository is cloned with sparse checkout for a subdirectory
+func (w *Watcher) SyncWithSubdir(repoURL, branch, subdir string, auth *Auth) (string, error) {
 	repoPath := w.repoPath(repoURL)
 	
 	// Clone if doesn't exist
 	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-		_, err := w.Clone(repoURL, branch, auth)
+		path, err := w.CloneWithSubdir(repoURL, branch, subdir, auth)
 		if err != nil {
 			return "", fmt.Errorf("clone: %w", err)
 		}
-		return repoPath, nil
+		return path, nil
+	}
+	
+	// If subdir is specified, ensure sparse checkout is configured
+	if subdir != "" {
+		if err := w.configureSparseCheckout(repoPath, subdir); err != nil {
+			return "", fmt.Errorf("configure sparse checkout: %w", err)
+		}
 	}
 	
 	// Pull latest changes
@@ -201,6 +309,11 @@ func (w *Watcher) Sync(repoURL, branch string, auth *Auth) (string, error) {
 	err = w.CheckoutBranch(repoPath, branch)
 	if err != nil {
 		return "", fmt.Errorf("checkout: %w", err)
+	}
+	
+	// If subdir is specified, return path to subdirectory
+	if subdir != "" {
+		return filepath.Join(repoPath, subdir), nil
 	}
 	
 	return repoPath, nil

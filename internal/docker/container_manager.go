@@ -275,6 +275,42 @@ func (cm *ContainerManager) GetContainerInfo(deploymentKey string) (*ContainerIn
 	return info, ok
 }
 
+// TrackContainer registers a container that was started externally (e.g., by a worker)
+func (cm *ContainerManager) TrackContainer(deploymentKey, containerID, imageTag string, hostPort, containerPort int) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	
+	info := &ContainerInfo{
+		ContainerID:   containerID,
+		ImageTag:      imageTag,
+		HostPort:      hostPort,
+		ContainerPort: containerPort,
+		StartedAt:     time.Now(),
+	}
+	
+	cm.containers[deploymentKey] = info
+	log.Printf("Tracked externally started container %s for deployment %s on port %d", containerID[:12], deploymentKey, hostPort)
+}
+
+// IsContainerRunning checks if a container is actually running
+func (cm *ContainerManager) IsContainerRunning(containerID string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	
+	inspected, err := cm.client.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return false
+	}
+	return inspected.State.Running
+}
+
+// RemoveContainerInfo removes container info from the map without stopping the container
+func (cm *ContainerManager) RemoveContainerInfo(deploymentKey string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	delete(cm.containers, deploymentKey)
+}
+
 // StopContainerForDeployment stops and removes a container for a deployment
 func (cm *ContainerManager) StopContainerForDeployment(ctx context.Context, deploymentKey string) error {
 	cm.mu.Lock()

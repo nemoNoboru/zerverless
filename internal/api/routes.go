@@ -99,6 +99,8 @@ func NewRouterWithGitOps(cfg *config.Config, vm *volunteer.Manager, jobStore job
 
 	// GitOps API
 	if gitopsHandlers != nil {
+		// Set dispatch function for GitOps handlers
+		gitopsHandlers.SetDispatchFunc(wsServer.DispatchToIdle)
 		r.Route("/api/gitops/applications", func(r chi.Router) {
 			r.Post("/", gitopsHandlers.RegisterApplication)
 			r.Get("/", gitopsHandlers.ListApplications)

@@ -5,7 +5,7 @@ metadata:
   namespace: example
 spec:
   source:
-    repoURL: https://github.com/nemoNoboru/zerverless/example
+    repoURL: https://github.com/nemoNoboru/small-zerverless-test-flask-docker
     branch: main
   
   functions:

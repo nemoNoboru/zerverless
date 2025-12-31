@@ -10,6 +10,84 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
+@app.route('/flask-example/hello', methods=['GET', 'POST'])
+@app.route('/flask-example', methods=['GET', 'POST'])
+@app.route('/', methods=['GET', 'POST'])
+def hello():
+    req = {
+        'method': request.method,
+        'path': request.path,
+        'query': dict(request.args),
+        'headers': dict(request.headers),
+        'body': request.get_data(as_text=True)
+    }
+    result = handle(req)
+    response = app.response_class(
+        response=result['body'],
+        status=result['status'],
+        mimetype=result['headers'].get('Content-Type', 'application/json')
+    )
+    for key, value in result['headers'].items():
+        response.headers[key] = value
+    return response
+
+@app.route('/flask-example/users', methods=['GET', 'POST'])
+def users():
+    req = {
+        'method': request.method,
+        'path': request.path,
+        'query': dict(request.args),
+        'headers': dict(request.headers),
+        'body': request.get_data(as_text=True)
+    }
+    result = handle(req)
+    response = app.response_class(
+        response=result['body'],
+        status=result['status'],
+        mimetype=result['headers'].get('Content-Type', 'application/json')
+    )
+    for key, value in result['headers'].items():
+        response.headers[key] = value
+    return response
+
+@app.route('/flask-example/users/<user_id>', methods=['GET'])
+def user_detail(user_id):
+    req = {
+        'method': request.method,
+        'path': request.path,
+        'query': dict(request.args),
+        'headers': dict(request.headers),
+        'body': request.get_data(as_text=True)
+    }
+    result = handle(req)
+    response = app.response_class(
+        response=result['body'],
+        status=result['status'],
+        mimetype=result['headers'].get('Content-Type', 'application/json')
+    )
+    for key, value in result['headers'].items():
+        response.headers[key] = value
+    return response
+
+@app.route('/flask-example/health', methods=['GET'])
+def health():
+    req = {
+        'method': request.method,
+        'path': request.path,
+        'query': dict(request.args),
+        'headers': dict(request.headers),
+        'body': request.get_data(as_text=True)
+    }
+    result = handle(req)
+    response = app.response_class(
+        response=result['body'],
+        status=result['status'],
+        mimetype=result['headers'].get('Content-Type', 'application/json')
+    )
+    for key, value in result['headers'].items():
+        response.headers[key] = value
+    return response
+
 def handle(req):
     """
     Main handler function for Zerverless.
@@ -91,8 +169,8 @@ def handle(req):
         }
 
 if __name__ == '__main__':
-    # For local development
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # For Docker deployment - run on port 80
+    app.run(host='0.0.0.0', port=80, debug=False)
 else:
     # For Zerverless: read from stdin, write to stdout
     try:

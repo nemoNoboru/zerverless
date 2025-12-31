@@ -519,10 +519,9 @@ func (s *Server) handleDockerBuildDeployCompletion(jobID string, result any) {
 		}
 		
 		if workerStartedContainer {
-			// Worker already started the container, just track it
+			// Worker already started the container, track it in the container manager
 			log.Printf("Worker started container %s on port %d for deployment %s", containerID[:12], hostPort, deploymentKey)
-			// Note: ContainerManager will discover the container on first request if needed
-			// For now, we rely on the worker's container being accessible
+			s.containerMgr.TrackContainer(deploymentKey, containerID, imageTag, hostPort, containerPort)
 		} else {
 			// Worker didn't start container (or failed), orchestrator starts it
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

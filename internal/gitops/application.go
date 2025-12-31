@@ -26,6 +26,7 @@ type ApplicationSpec struct {
 type SourceConfig struct {
 	RepoURL string `yaml:"repoURL"`
 	Branch  string `yaml:"branch"`
+	Subdir  string `yaml:"subdir,omitempty"` // Optional subdirectory to clone (sparse checkout)
 }
 
 type FunctionDef struct {

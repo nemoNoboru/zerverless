@@ -63,32 +63,59 @@ func (h *GitOpsHandlers) RegisterApplication(w http.ResponseWriter, r *http.Requ
 		req.Source.Branch = "main"
 	}
 
-	// Sync repository
-	repoPath, err := h.watcher.Sync(req.Source.RepoURL, req.Source.Branch, req.Auth)
+	// First sync: try to find the manifest (start with root or request subdir)
+	initialSubdir := req.Source.Subdir
+	repoPath, err := h.watcher.SyncWithSubdir(req.Source.RepoURL, req.Source.Branch, initialSubdir, req.Auth)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("sync repo: %v", err)})
 		return
 	}
 
-	// Parse zerverless.yaml - check root first, then example/ subdirectory
+	// Parse zerverless.yaml - check root first, then subdirectory
 	manifestPath := filepath.Join(repoPath, "zerverless.yaml")
 	manifestData, err := os.ReadFile(manifestPath)
 	if err != nil {
-		// Try example/ subdirectory
-		manifestPath = filepath.Join(repoPath, "example", "zerverless.yaml")
-		manifestData, err = os.ReadFile(manifestPath)
+		// If no subdir was specified, try common subdirectories
+		if initialSubdir == "" {
+			// Try example/ subdirectory as fallback
+			manifestPath = filepath.Join(repoPath, "example", "zerverless.yaml")
+			manifestData, err = os.ReadFile(manifestPath)
+			if err == nil {
+				// Update repoPath to point to example subdirectory
+				repoPath = filepath.Join(repoPath, "example")
+			}
+		}
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("read manifest: %v (checked root and example/)", err)})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("read manifest: %v", err)})
 			return
 		}
-		// Update repoPath to point to example subdirectory for syncing
-		repoPath = filepath.Join(repoPath, "example")
 	}
 
 	app, err := gitops.ParseApplication(manifestData)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("parse manifest: %v", err)})
 		return
+	}
+
+	// If manifest specifies a subdir different from what we used, re-sync with manifest's subdir
+	if app.Spec.Source.Subdir != "" && app.Spec.Source.Subdir != initialSubdir {
+		repoPath, err = h.watcher.SyncWithSubdir(req.Source.RepoURL, req.Source.Branch, app.Spec.Source.Subdir, req.Auth)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("sync repo with subdir from manifest: %v", err)})
+			return
+		}
+		// Re-read manifest from the correct location
+		manifestPath = filepath.Join(repoPath, "zerverless.yaml")
+		manifestData, err = os.ReadFile(manifestPath)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("read manifest from subdir: %v", err)})
+			return
+		}
+		app, err = gitops.ParseApplication(manifestData)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("parse manifest: %v", err)})
+			return
+		}
 	}
 
 	// Sync application
