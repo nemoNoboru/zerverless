@@ -4,11 +4,11 @@ package job
 type AssignFunc func(job *Job, volunteerID string) bool
 
 type Dispatcher struct {
-	store    *Store
+	store    JobStore
 	assignFn AssignFunc
 }
 
-func NewDispatcher(store *Store, assignFn AssignFunc) *Dispatcher {
+func NewDispatcher(store JobStore, assignFn AssignFunc) *Dispatcher {
 	return &Dispatcher{store: store, assignFn: assignFn}
 }
 

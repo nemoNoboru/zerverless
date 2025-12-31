@@ -11,6 +11,7 @@ import (
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 
+	dockerrt "github.com/zerverless/orchestrator/internal/docker"
 	jsrt "github.com/zerverless/orchestrator/internal/js"
 	luart "github.com/zerverless/orchestrator/internal/lua"
 	"github.com/zerverless/orchestrator/internal/wasm"
@@ -26,6 +27,8 @@ type Worker struct {
 	pythonEnabled bool
 	luaRuntime    *luart.Runtime
 	jsRuntime     *jsrt.Runtime
+	dockerRuntime *dockerrt.Runtime
+	dockerEnabled bool
 }
 
 type Options struct {
@@ -67,6 +70,16 @@ func NewWithOptions(url string, opts Options) *Worker {
 		}
 	}
 
+	// Try to initialize Docker runtime
+	dockerRT, err := dockerrt.NewRuntime()
+	if err != nil {
+		log.Printf("Warning: Docker runtime not available: %v", err)
+	} else {
+		w.dockerRuntime = dockerRT
+		w.dockerEnabled = true
+		log.Printf("Docker runtime enabled")
+	}
+
 	return w
 }
 
@@ -74,6 +87,9 @@ func (w *Worker) Run(ctx context.Context) error {
 	defer w.runtime.Close(ctx)
 	if w.pythonRuntime != nil {
 		defer w.pythonRuntime.Close(ctx)
+	}
+	if w.dockerRuntime != nil {
+		defer w.dockerRuntime.Close()
 	}
 
 	for {
@@ -174,6 +190,12 @@ func (w *Worker) executeJob(ctx context.Context, conn *websocket.Conn, job JobMe
 		result, err = w.executePython(ctx, job, timeout)
 	case "wasm", "":
 		result, err = w.executeWasm(ctx, job, timeout)
+	case "docker-build":
+		result, err = w.executeDockerBuild(ctx, job, timeout)
+	case "docker-deploy":
+		result, err = w.executeDockerDeploy(ctx, conn, job, timeout)
+	case "docker", "docker-run":
+		result, err = w.executeDockerRun(ctx, job, timeout)
 	default:
 		w.sendError(ctx, conn, job.JobID, fmt.Sprintf("unknown job type: %s", job.JobType))
 		return
@@ -272,6 +294,135 @@ func (w *Worker) executeJS(ctx context.Context, job JobMessage, timeout time.Dur
 	return &wasm.ExecutionResult{Output: result.Output}, nil
 }
 
+func (w *Worker) executeDockerBuild(ctx context.Context, job JobMessage, timeout time.Duration) (*wasm.ExecutionResult, error) {
+	if !w.dockerEnabled {
+		return nil, fmt.Errorf("docker runtime not available")
+	}
+
+	// Extract build parameters
+	repoPath, ok := job.InputData["repo_path"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing repo_path in input_data")
+	}
+	dockerfilePath, ok := job.InputData["dockerfile_path"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing dockerfile_path in input_data")
+	}
+	contextPath, ok := job.InputData["context_path"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing context_path in input_data")
+	}
+	imageTag, ok := job.InputData["image_tag"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing image_tag in input_data")
+	}
+
+	log.Printf("Building Docker image: %s", imageTag)
+
+	// Build image
+	buildResult, err := w.dockerRuntime.BuildImage(ctx, repoPath, dockerfilePath, contextPath, imageTag, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("build image: %w", err)
+	}
+
+	// Return result as JSON
+	resultJSON, _ := json.Marshal(buildResult)
+	return &wasm.ExecutionResult{
+		Output: string(resultJSON),
+	}, nil
+}
+
+func (w *Worker) executeDockerDeploy(ctx context.Context, conn *websocket.Conn, job JobMessage, timeout time.Duration) (*wasm.ExecutionResult, error) {
+	// Image tag should be in job.Code (set by orchestrator after build completes)
+	imageTag := job.Code
+	if imageTag == "" {
+		return nil, fmt.Errorf("missing image tag in job code (build job may not have completed)")
+	}
+
+	user, ok := job.InputData["user"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing user in input_data")
+	}
+	path, ok := job.InputData["path"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing path in input_data")
+	}
+
+	// docker-deploy is handled by the orchestrator, not the worker
+	// The worker just needs to return success so the orchestrator can create the deployment
+	// In a full implementation, we'd create the deployment here, but for now
+	// we return the deployment info so the orchestrator can handle it
+
+	result := map[string]any{
+		"image_tag": imageTag,
+		"user":      user,
+		"path":      path,
+		"status":    "ready",
+	}
+
+	resultJSON, _ := json.Marshal(result)
+	return &wasm.ExecutionResult{
+		Output: string(resultJSON),
+	}, nil
+}
+
+func (w *Worker) executeDockerRun(ctx context.Context, job JobMessage, timeout time.Duration) (*wasm.ExecutionResult, error) {
+	if !w.dockerEnabled {
+		return nil, fmt.Errorf("docker runtime not available")
+	}
+
+	// Image tag is stored in job.Code for Docker runtime
+	imageTag := job.Code
+	if imageTag == "" {
+		return nil, fmt.Errorf("no image tag provided")
+	}
+
+	// Extract command and env from input data
+	var command []string
+	if cmd, ok := job.InputData["command"].([]any); ok {
+		for _, c := range cmd {
+			if s, ok := c.(string); ok {
+				command = append(command, s)
+			}
+		}
+	}
+
+	env := make(map[string]string)
+	if envMap, ok := job.InputData["env"].(map[string]any); ok {
+		for k, v := range envMap {
+			if s, ok := v.(string); ok {
+				env[k] = s
+			}
+		}
+	}
+
+	// Add INPUT data as JSON env var
+	if job.InputData != nil {
+		inputJSON, _ := json.Marshal(job.InputData)
+		env["INPUT"] = string(inputJSON)
+	}
+
+	log.Printf("Running Docker container: %s", imageTag)
+
+	// Run container
+	runResult, err := w.dockerRuntime.RunContainer(ctx, imageTag, command, env, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("run container: %w", err)
+	}
+
+	// Return result
+	if runResult.Error != "" {
+		return &wasm.ExecutionResult{
+			Output: runResult.Output,
+			Error:  runResult.Error,
+		}, nil
+	}
+
+	return &wasm.ExecutionResult{
+		Output: runResult.Output,
+	}, nil
+}
+
 func (w *Worker) sendError(ctx context.Context, conn *websocket.Conn, jobID, errMsg string) {
 	log.Printf("Job %s failed: %s", jobID[:8], errMsg)
 
@@ -293,6 +444,7 @@ func (w *Worker) sendReady(ctx context.Context, conn *websocket.Conn) error {
 			Python:      w.pythonEnabled,
 			Lua:         true, // Always available (pure Go)
 			JS:          true, // Always available (pure Go)
+			Docker:      w.dockerEnabled,
 			MaxMemoryMB: 256,
 		},
 	}
@@ -327,6 +479,7 @@ type Capabilities struct {
 	Python      bool `json:"python"`
 	Lua         bool `json:"lua"`
 	JS          bool `json:"js"`
+	Docker      bool `json:"docker"`
 	MaxMemoryMB int  `json:"max_memory_mb"`
 }
 

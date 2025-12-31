@@ -7,7 +7,9 @@ import (
 func TestDispatcher_AssignsPendingToIdle(t *testing.T) {
 	store := NewStore()
 	j := New("python", "print(1)", nil, 30)
-	store.Add(j)
+	if err := store.Add(j); err != nil {
+		t.Fatalf("add job: %v", err)
+	}
 
 	// Mock volunteer assignment function
 	var assignedJob *Job
@@ -54,7 +56,9 @@ func TestDispatcher_NoPendingJobs(t *testing.T) {
 func TestDispatcher_AssignmentFails(t *testing.T) {
 	store := NewStore()
 	j := New("python", "print(1)", nil, 30)
-	store.Add(j)
+	if err := store.Add(j); err != nil {
+		t.Fatalf("add job: %v", err)
+	}
 
 	// Assignment fails (volunteer disconnected)
 	assignFn := func(job *Job, volunteerID string) bool {
@@ -65,7 +69,10 @@ func TestDispatcher_AssignmentFails(t *testing.T) {
 	d.TryDispatch("vol-1")
 
 	// Job should remain pending
-	got, _ := store.Get(j.ID)
+	got, err := store.Get(j.ID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
 	if got.Status != StatusPending {
 		t.Errorf("expected pending, got %s", got.Status)
 	}

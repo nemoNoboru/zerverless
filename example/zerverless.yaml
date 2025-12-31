@@ -1,0 +1,20 @@
+apiVersion: zerverless.io/v1
+kind: Application
+metadata:
+  name: flask-example
+  namespace: example
+spec:
+  source:
+    repoURL: https://github.com/yourusername/zerverless-example.git
+    branch: main
+  
+  functions:
+    # Flask app as Docker deployment
+    - path: /api
+      runtime: docker
+      dockerfile: ./Dockerfile
+      context: .
+  
+  static:
+    dir: ./static
+

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flask Example - Zerverless</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Flask Example App</h1>
+            <p>Deployed via Zerverless GitOps</p>
+        </header>
+        
+        <main>
+            <section class="endpoints">
+                <h2>Available Endpoints</h2>
+                <div class="endpoint-list">
+                    <div class="endpoint">
+                        <code>GET /api/hello</code>
+                        <p>Simple hello endpoint</p>
+                    </div>
+                    <div class="endpoint">
+                        <code>GET /api/users</code>
+                        <p>List all users</p>
+                    </div>
+                    <div class="endpoint">
+                        <code>POST /api/users</code>
+                        <p>Create a new user</p>
+                    </div>
+                    <div class="endpoint">
+                        <code>GET /api/users/:id</code>
+                        <p>Get user by ID</p>
+                    </div>
+                    <div class="endpoint">
+                        <code>GET /api/health</code>
+                        <p>Health check endpoint</p>
+                    </div>
+                </div>
+            </section>
+            
+            <section class="test">
+                <h2>Test API</h2>
+                <button onclick="testHello()">Test Hello</button>
+                <button onclick="testUsers()">Test Users</button>
+                <button onclick="testHealth()">Test Health</button>
+                <div id="result"></div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="js/app.js"></script>
+</body>
+</html>
+

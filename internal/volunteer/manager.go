@@ -78,12 +78,20 @@ func (m *Manager) GetIdle() *Volunteer {
 
 // GetIdleFor returns an idle volunteer that supports the given job type
 func (m *Manager) GetIdleFor(jobType string) *Volunteer {
+	return m.GetIdleForNamespace(jobType, "")
+}
+
+// GetIdleForNamespace returns an idle volunteer that supports the given job type and namespace
+func (m *Manager) GetIdleForNamespace(jobType, namespace string) *Volunteer {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	for _, v := range m.volunteers {
 		if v.Status == StatusIdle && v.Capabilities.Supports(jobType) {
-			return v
+			// Check namespace whitelist if namespace is specified
+			if namespace == "" || v.Capabilities.SupportsNamespace(namespace) {
+				return v
+			}
 		}
 	}
 	return nil

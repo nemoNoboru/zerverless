@@ -28,11 +28,13 @@ func TestStore_AddAndGet(t *testing.T) {
 	store := NewStore()
 	j := New("python", "print(1)", nil, 30)
 
-	store.Add(j)
-	got, ok := store.Get(j.ID)
+	if err := store.Add(j); err != nil {
+		t.Fatalf("add job: %v", err)
+	}
+	got, err := store.Get(j.ID)
 
-	if !ok {
-		t.Fatal("expected job to exist")
+	if err != nil {
+		t.Fatalf("expected job to exist: %v", err)
 	}
 	if got.ID != j.ID {
 		t.Errorf("expected %s, got %s", j.ID, got.ID)
@@ -42,8 +44,8 @@ func TestStore_AddAndGet(t *testing.T) {
 func TestStore_GetNotFound(t *testing.T) {
 	store := NewStore()
 
-	_, ok := store.Get("nonexistent")
-	if ok {
+	_, err := store.Get("nonexistent")
+	if err == nil {
 		t.Error("expected job not found")
 	}
 }
@@ -68,8 +70,12 @@ func TestStore_NextPending(t *testing.T) {
 
 func TestStore_List(t *testing.T) {
 	store := NewStore()
-	store.Add(New("python", "1", nil, 30))
-	store.Add(New("python", "2", nil, 30))
+	if err := store.Add(New("python", "1", nil, 30)); err != nil {
+		t.Fatalf("add job: %v", err)
+	}
+	if err := store.Add(New("python", "2", nil, 30)); err != nil {
+		t.Fatalf("add job: %v", err)
+	}
 
 	jobs, total := store.List(10, 0, "")
 

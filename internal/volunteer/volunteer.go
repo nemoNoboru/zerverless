@@ -15,11 +15,13 @@ const (
 )
 
 type Capabilities struct {
-	Wasm        bool `json:"wasm"`
-	Python      bool `json:"python"`
-	Lua         bool `json:"lua"`
-	JS          bool `json:"js"`
-	MaxMemoryMB int  `json:"max_memory_mb"`
+	Wasm        bool     `json:"wasm"`
+	Python      bool     `json:"python"`
+	Lua         bool     `json:"lua"`
+	JS          bool     `json:"js"`
+	Docker      bool     `json:"docker"`
+	MaxMemoryMB int      `json:"max_memory_mb"`
+	Namespaces  []string `json:"namespaces,omitempty"` // Whitelist of namespaces this volunteer can work on
 }
 
 // Supports checks if the volunteer can handle a given job type
@@ -33,9 +35,25 @@ func (c *Capabilities) Supports(jobType string) bool {
 		return c.Python
 	case "wasm", "":
 		return c.Wasm
+	case "docker", "docker-build", "docker-deploy", "docker-run":
+		return c.Docker
 	default:
 		return false
 	}
+}
+
+// SupportsNamespace checks if the volunteer can work on the given namespace
+// Empty whitelist means all namespaces are supported
+func (c *Capabilities) SupportsNamespace(namespace string) bool {
+	if len(c.Namespaces) == 0 {
+		return true // No whitelist = support all
+	}
+	for _, ns := range c.Namespaces {
+		if ns == namespace {
+			return true
+		}
+	}
+	return false
 }
 
 type Volunteer struct {
