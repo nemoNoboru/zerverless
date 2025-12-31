@@ -11,6 +11,7 @@ type JobStore interface {
 	SetStatus(id string, status Status, volunteerID string) error
 	Complete(id string, result any) error
 	Fail(id string, errMsg string) error
+	Delete(id string) error
 	Stats() (pending, running, completed, failed int)
 }
 

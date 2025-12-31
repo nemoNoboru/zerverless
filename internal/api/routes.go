@@ -37,6 +37,7 @@ func NewRouterWithGitOps(cfg *config.Config, vm *volunteer.Manager, jobStore job
 	r.Use(middleware.RequestID)
 
 	wsServer := ws.NewServer(vm, jobStore)
+	wsServer.SetDeployStore(deployStore)
 
 	h := NewHandlers(cfg, vm, jobStore)
 	h.deployStore = deployStore
@@ -48,6 +49,7 @@ func NewRouterWithGitOps(cfg *config.Config, vm *volunteer.Manager, jobStore job
 	if err == nil {
 		h.dockerRuntime = dockerRuntime
 		h.containerMgr = docker.NewContainerManager(dockerRuntime)
+		wsServer.SetContainerManager(h.containerMgr)
 		log.Printf("Docker container manager initialized successfully")
 	} else {
 		log.Printf("Docker not available (containers will not be managed): %v", err)
@@ -61,6 +63,7 @@ func NewRouterWithGitOps(cfg *config.Config, vm *volunteer.Manager, jobStore job
 	// Jobs API
 	r.Post("/api/jobs", h.SubmitJob)
 	r.Get("/api/jobs/{id}", h.GetJob)
+	r.Delete("/api/jobs/{id}", h.DeleteJob)
 	r.Get("/api/jobs", h.ListJobs)
 
 	// Deploy API

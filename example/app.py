@@ -31,7 +31,7 @@ def handle(req):
         body_data = {}
     
     # Route handling
-    if path == '/' or path == '/hello':
+    if path == '/' or path == '/flask-example' or path == '/flask-example/hello':
         return {
             'status': 200,
             'headers': {'Content-Type': 'application/json'},
@@ -42,7 +42,7 @@ def handle(req):
             })
         }
     
-    elif path == '/api/users':
+    elif path == '/flask-example/users':
         if method == 'GET':
             return {
                 'status': 200,
@@ -64,7 +64,7 @@ def handle(req):
                 })
             }
     
-    elif path.startswith('/api/users/'):
+    elif path.startswith('/flask-example/users/'):
         user_id = path.split('/')[-1]
         return {
             'status': 200,
@@ -76,7 +76,7 @@ def handle(req):
             })
         }
     
-    elif path == '/api/health':
+    elif path == '/flask-example/health':
         return {
             'status': 200,
             'headers': {'Content-Type': 'application/json'},

@@ -192,6 +192,8 @@ func (w *Worker) executeJob(ctx context.Context, conn *websocket.Conn, job JobMe
 		result, err = w.executeWasm(ctx, job, timeout)
 	case "docker-build":
 		result, err = w.executeDockerBuild(ctx, job, timeout)
+	case "docker-build-deploy":
+		result, err = w.executeDockerBuildDeploy(ctx, job, timeout)
 	case "docker-deploy":
 		result, err = w.executeDockerDeploy(ctx, conn, job, timeout)
 	case "docker", "docker-run":
@@ -327,6 +329,87 @@ func (w *Worker) executeDockerBuild(ctx context.Context, job JobMessage, timeout
 
 	// Return result as JSON
 	resultJSON, _ := json.Marshal(buildResult)
+	return &wasm.ExecutionResult{
+		Output: string(resultJSON),
+	}, nil
+}
+
+func (w *Worker) executeDockerBuildDeploy(ctx context.Context, job JobMessage, timeout time.Duration) (*wasm.ExecutionResult, error) {
+	if !w.dockerEnabled {
+		return nil, fmt.Errorf("docker runtime not available")
+	}
+
+	// Extract build parameters
+	repoPath, ok := job.InputData["repo_path"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing repo_path in input_data")
+	}
+	dockerfilePath, ok := job.InputData["dockerfile_path"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing dockerfile_path in input_data")
+	}
+	contextPath, ok := job.InputData["context_path"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing context_path in input_data")
+	}
+	imageTag, ok := job.InputData["image_tag"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing image_tag in input_data")
+	}
+	user, ok := job.InputData["user"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing user in input_data")
+	}
+	path, ok := job.InputData["path"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing path in input_data")
+	}
+
+	log.Printf("Building and deploying Docker image: %s", imageTag)
+
+	// Build image (use 80% of timeout for build, 20% for container start)
+	buildTimeout := time.Duration(float64(timeout) * 0.8)
+	buildResult, err := w.dockerRuntime.BuildImage(ctx, repoPath, dockerfilePath, contextPath, imageTag, buildTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("build image: %w", err)
+	}
+
+	// Start container for deployment (worker handles this)
+	deploymentKey := fmt.Sprintf("%s%s", user, path)
+	containerPort := 80 // Default port for web servers
+	containerInfo, err := w.dockerRuntime.StartContainerForDeployment(ctx, deploymentKey, imageTag, containerPort)
+	if err != nil {
+		log.Printf("Warning: Failed to start container, deployment will be created but container not running: %v", err)
+		// Still return success, orchestrator can start container later
+		result := map[string]any{
+			"image_tag": buildResult.ImageTag,
+			"user":      user,
+			"path":      path,
+			"status":    "built",
+			"build_log": buildResult.BuildLog,
+			"error":     fmt.Sprintf("container start failed: %v", err),
+		}
+		resultJSON, _ := json.Marshal(result)
+		return &wasm.ExecutionResult{
+			Output: string(resultJSON),
+		}, nil
+	}
+
+	log.Printf("Container started: %s on port %d", containerInfo.ContainerID[:12], containerInfo.HostPort)
+
+	// Return result with deployment and container info
+	result := map[string]any{
+		"image_tag":      buildResult.ImageTag,
+		"user":           user,
+		"path":           path,
+		"status":         "ready",
+		"build_log":      buildResult.BuildLog,
+		"container_id":   containerInfo.ContainerID,
+		"host_port":      containerInfo.HostPort,
+		"container_port": containerInfo.ContainerPort,
+	}
+
+	resultJSON, _ := json.Marshal(result)
 	return &wasm.ExecutionResult{
 		Output: string(resultJSON),
 	}, nil

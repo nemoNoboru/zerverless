@@ -13,17 +13,23 @@ import (
 )
 
 type GitOpsHandlers struct {
-	syncer  *gitops.Syncer
-	watcher *gitops.Watcher
-	baseDir string
+	syncer     *gitops.Syncer
+	watcher    *gitops.Watcher
+	baseDir    string
+	onDispatch func() // Function to trigger job dispatch
 }
 
 func NewGitOpsHandlers(syncer *gitops.Syncer, watcher *gitops.Watcher, baseDir string) *GitOpsHandlers {
 	return &GitOpsHandlers{
-		syncer:  syncer,
-		watcher: watcher,
-		baseDir: baseDir,
+		syncer:     syncer,
+		watcher:    watcher,
+		baseDir:    baseDir,
+		onDispatch: nil,
 	}
+}
+
+func (h *GitOpsHandlers) SetDispatchFunc(fn func()) {
+	h.onDispatch = fn
 }
 
 type ApplicationRequest struct {
@@ -64,12 +70,19 @@ func (h *GitOpsHandlers) RegisterApplication(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Parse zerverless.yaml
+	// Parse zerverless.yaml - check root first, then example/ subdirectory
 	manifestPath := filepath.Join(repoPath, "zerverless.yaml")
 	manifestData, err := os.ReadFile(manifestPath)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("read manifest: %v", err)})
-		return
+		// Try example/ subdirectory
+		manifestPath = filepath.Join(repoPath, "example", "zerverless.yaml")
+		manifestData, err = os.ReadFile(manifestPath)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("read manifest: %v (checked root and example/)", err)})
+			return
+		}
+		// Update repoPath to point to example subdirectory for syncing
+		repoPath = filepath.Join(repoPath, "example")
 	}
 
 	app, err := gitops.ParseApplication(manifestData)
@@ -82,6 +95,11 @@ func (h *GitOpsHandlers) RegisterApplication(w http.ResponseWriter, r *http.Requ
 	if err := h.syncer.SyncApplication(app, repoPath); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("sync application: %v", err)})
 		return
+	}
+
+	// Trigger dispatch to idle volunteers after syncing jobs
+	if h.onDispatch != nil {
+		h.onDispatch()
 	}
 
 	resp := ApplicationResponse{

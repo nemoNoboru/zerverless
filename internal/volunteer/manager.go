@@ -89,7 +89,9 @@ func (m *Manager) GetIdleForNamespace(jobType, namespace string) *Volunteer {
 	for _, v := range m.volunteers {
 		if v.Status == StatusIdle && v.Capabilities.Supports(jobType) {
 			// Check namespace whitelist if namespace is specified
-			if namespace == "" || v.Capabilities.SupportsNamespace(namespace) {
+			// "zerverless" namespace is always supported (system namespace)
+			// Empty whitelist (no Namespaces field) means support all namespaces
+			if namespace == "" || namespace == "zerverless" || v.Capabilities.SupportsNamespace(namespace) {
 				return v
 			}
 		}

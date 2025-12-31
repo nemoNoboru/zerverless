@@ -27,7 +27,7 @@ func TestSyncer_SyncApplication(t *testing.T) {
 	jobStore := job.NewPersistentStore(dbStore)
 	deployStore := deploy.NewPersistentStore(dbStore)
 	watcher := NewWatcher(tmpDir, 5*time.Minute)
-	syncer := NewSyncer(watcher, jobStore, deployStore, tmpDir)
+	syncer := NewSyncer(watcher, jobStore, deployStore, nil, tmpDir)
 
 	app := &Application{
 		APIVersion: "zerverless.io/v1",

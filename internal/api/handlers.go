@@ -141,6 +141,15 @@ func (h *Handlers) ListJobs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handlers) DeleteJob(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.store.Delete(id); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type DeployRequest struct {
 	Runtime string `json:"runtime"`
 	Code    string `json:"code"`

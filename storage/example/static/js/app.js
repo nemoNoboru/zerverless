@@ -1,4 +1,4 @@
-const API_BASE = '/example/flask-example';
+const API_BASE = '/example/api';
 
 async function testHello() {
     try {

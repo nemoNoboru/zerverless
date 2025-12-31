@@ -177,6 +177,23 @@ func (s *Store) Fail(id string, errMsg string) error {
 	return fmt.Errorf("job not found: %s", id)
 }
 
+func (s *Store) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.jobs[id]; !ok {
+		return fmt.Errorf("job not found: %s", id)
+	}
+	delete(s.jobs, id)
+	// Remove from order slice
+	for i, jobID := range s.order {
+		if jobID == id {
+			s.order = append(s.order[:i], s.order[i+1:]...)
+			break
+		}
+	}
+	return nil
+}
+
 func (s *Store) Stats() (pending, running, completed, failed int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

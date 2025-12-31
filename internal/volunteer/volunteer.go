@@ -35,7 +35,7 @@ func (c *Capabilities) Supports(jobType string) bool {
 		return c.Python
 	case "wasm", "":
 		return c.Wasm
-	case "docker", "docker-build", "docker-deploy", "docker-run":
+	case "docker", "docker-build", "docker-build-deploy", "docker-deploy", "docker-run":
 		return c.Docker
 	default:
 		return false
@@ -44,7 +44,12 @@ func (c *Capabilities) Supports(jobType string) bool {
 
 // SupportsNamespace checks if the volunteer can work on the given namespace
 // Empty whitelist means all namespaces are supported
+// "zerverless" namespace is always supported (system namespace)
 func (c *Capabilities) SupportsNamespace(namespace string) bool {
+	// System namespace is always supported
+	if namespace == "zerverless" {
+		return true
+	}
 	if len(c.Namespaces) == 0 {
 		return true // No whitelist = support all
 	}

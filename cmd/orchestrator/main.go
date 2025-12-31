@@ -121,7 +121,7 @@ func runOrchestrator(numWorkers int, pythonWasm, pythonLib string) {
 	}
 
 	gitopsWatcher := gitops.NewWatcher(gitopsBaseDir, 5*time.Minute)
-	gitopsSyncer := gitops.NewSyncer(gitopsWatcher, jobStore, deployStore, gitopsBaseDir)
+	gitopsSyncer := gitops.NewSyncer(gitopsWatcher, jobStore, deployStore, storageStore, gitopsBaseDir)
 	gitopsHandlers := api.NewGitOpsHandlers(gitopsSyncer, gitopsWatcher, gitopsBaseDir)
 
 	router := api.NewRouterWithGitOps(cfg, vm, jobStore, deployStore, dbManager, storageStore, gitopsHandlers)

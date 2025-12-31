@@ -3,6 +3,7 @@ package job
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -21,6 +22,8 @@ func NewPersistentStore(dbStore *db.Store) *PersistentStore {
 }
 
 func (s *PersistentStore) Add(j *Job) error {
+	log.Printf("Queuing job %s (type: %s, namespace: %s)", j.ID[:8], j.JobType, j.Namespace)
+	
 	data, err := json.Marshal(j)
 	if err != nil {
 		return fmt.Errorf("marshal job: %w", err)
@@ -31,6 +34,7 @@ func (s *PersistentStore) Add(j *Job) error {
 		return fmt.Errorf("store job: %w", err)
 	}
 
+	log.Printf("Job %s queued successfully", j.ID[:8])
 	return nil
 }
 
@@ -199,5 +203,10 @@ func (s *PersistentStore) Fail(id string, errMsg string) error {
 	now := time.Now().UTC()
 	j.CompletedAt = &now
 	return s.Update(j)
+}
+
+func (s *PersistentStore) Delete(id string) error {
+	key := fmt.Sprintf("jobs/%s", id)
+	return s.dbStore.Delete(SystemNamespace, key)
 }
 

@@ -5,12 +5,12 @@ metadata:
   namespace: example
 spec:
   source:
-    repoURL: https://github.com/yourusername/zerverless-example.git
+    repoURL: https://github.com/nemoNoboru/zerverless/example
     branch: main
   
   functions:
     # Flask app as Docker deployment
-    - path: /api
+    - path: /flask-example
       runtime: docker
       dockerfile: ./Dockerfile
       context: .

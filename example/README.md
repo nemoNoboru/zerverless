@@ -21,11 +21,11 @@ example/
 ## Features
 
 - **Flask API** with multiple endpoints:
-  - `GET /api/hello` - Simple hello endpoint
-  - `GET /api/users` - List users
-  - `POST /api/users` - Create user
-  - `GET /api/users/:id` - Get user by ID
-  - `GET /api/health` - Health check
+  - `GET /flask-example/hello` - Simple hello endpoint
+  - `GET /flask-example/users` - List users
+  - `POST /flask-example/users` - Create user
+  - `GET /flask-example/users/:id` - Get user by ID
+  - `GET /flask-example/health` - Health check
 
 - **Static files** served from `/static/example/`
 - **Docker deployment** via GitOps
@@ -59,7 +59,7 @@ curl -X POST http://localhost:8000/api/gitops/applications \
 
 ### 3. Access the App
 
-- **API**: `http://localhost:8000/example/api/hello`
+- **API**: `http://localhost:8000/example/flask-example/hello`
 - **Static files**: `http://localhost:8000/static/example/index.html`
 
 ## Local Development
@@ -76,20 +76,20 @@ python app.py
 
 ```bash
 # Test hello endpoint
-curl http://localhost:8000/example/api/hello
+curl http://localhost:8000/example/flask-example/hello
 
 # Test users endpoint
-curl http://localhost:8000/example/api/users
+curl http://localhost:8000/example/flask-example/users
 
 # Test health endpoint
-curl http://localhost:8000/example/api/health
+curl http://localhost:8000/example/flask-example/health
 ```
 
 ## How It Works
 
 1. **GitOps Sync**: Zerverless polls the Git repository every 5 minutes
 2. **Docker Build**: When changes are detected, it builds the Docker image from the Dockerfile
-3. **Deployment**: The Flask app is deployed as a function at `/example/api/*`
+3. **Deployment**: The Flask app is deployed as a function at `/example/flask-example/*`
 4. **Static Files**: Files in `static/` are synced to storage and served at `/static/example/*`
 
 ## Customization
